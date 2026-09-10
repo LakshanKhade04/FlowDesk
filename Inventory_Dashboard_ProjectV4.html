@@ -1,0 +1,2164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>FlowDesk — Inventory &amp; Working Capital Console</title>
+
+<!-- ============================= CDN LIBRARIES ============================= -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+
+<!-- ============================= FONTS ============================= -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+<style>
+/* ======================================================================
+   DESIGN TOKENS
+   A control-room aesthetic: graphite/near-black panels, hazard-amber for
+   alerts, signal-teal for cash velocity, mono type for every figure that
+   represents money, units or time — so numbers read like instrument
+   readouts, not prose.
+   ====================================================================== */
+:root{
+  --bg:#0a0d12;
+  --bg-grid: #0d1117;
+  --panel:#121822;
+  --panel-2:#161e2a;
+  --panel-3:#1b2431;
+  --border:#232d3b;
+  --border-soft:#1a2230;
+  --text:#e7ecf2;
+  --muted:#8a97a8;
+  --muted-2:#5c6b7f;
+  --amber:#f5a623;
+  --amber-dim:#5c4318;
+  --teal:#2dd4bf;
+  --teal-dim:#173934;
+  --green:#4ade80;
+  --green-dim:#173a26;
+  --red:#f0554a;
+  --red-dim:#3a1a17;
+  --blue:#5b9cf5;
+  --radius:10px;
+  --radius-lg:16px;
+  --font-ui:'Inter',system-ui,sans-serif;
+  --font-mono:'JetBrains Mono',ui-monospace,monospace;
+  --shadow: 0 8px 24px rgba(0,0,0,.35);
+}
+
+*{box-sizing:border-box;}
+html,body{margin:0;padding:0;}
+body{
+  background:
+    radial-gradient(circle at 15% 0%, rgba(45,212,191,.05), transparent 40%),
+    radial-gradient(circle at 100% 0%, rgba(245,166,35,.05), transparent 45%),
+    var(--bg);
+  color:var(--text);
+  font-family:var(--font-ui);
+  min-height:100vh;
+  -webkit-font-smoothing:antialiased;
+}
+::selection{background:var(--teal-dim);color:var(--teal);}
+::-webkit-scrollbar{width:10px;height:10px;}
+::-webkit-scrollbar-track{background:transparent;}
+::-webkit-scrollbar-thumb{background:var(--border);border-radius:8px;}
+a{color:inherit;}
+button{font-family:var(--font-ui);}
+:focus-visible{outline:2px solid var(--teal);outline-offset:2px;}
+
+.mono{font-family:var(--font-mono);}
+.hidden{display:none !important;}
+
+/* ---------------------------------------------------------------------
+   APP SHELL
+--------------------------------------------------------------------- */
+.app-shell{
+  display:grid;
+  grid-template-columns:230px 1fr;
+  min-height:100vh;
+}
+
+/* SIDEBAR ------------------------------------------------------------ */
+.sidebar{
+  background:linear-gradient(180deg,var(--panel),var(--bg));
+  border-right:1px solid var(--border);
+  padding:22px 14px;
+  display:flex;
+  flex-direction:column;
+  gap:26px;
+  position:sticky;
+  top:0;
+  height:100vh;
+}
+.brand{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  padding:0 6px;
+}
+.brand-mark{
+  width:34px;height:34px;border-radius:8px;
+  background:linear-gradient(135deg,var(--teal),var(--blue));
+  display:flex;align-items:center;justify-content:center;
+  font-family:var(--font-mono);font-weight:700;color:#04140f;
+  flex-shrink:0;
+  box-shadow:0 0 0 1px rgba(45,212,191,.35), 0 0 18px rgba(45,212,191,.25);
+}
+.brand-text{line-height:1.1;}
+.brand-text .name{font-weight:800;font-size:15px;letter-spacing:.02em;}
+.brand-text .tag{font-size:10.5px;color:var(--muted-2);font-family:var(--font-mono);letter-spacing:.06em;text-transform:uppercase;}
+
+.nav{display:flex;flex-direction:column;gap:2px;}
+.nav-item{
+  display:flex;align-items:center;gap:10px;
+  padding:10px 12px;border-radius:8px;
+  color:var(--muted);font-size:13.5px;font-weight:500;
+  cursor:pointer;border:1px solid transparent;
+  transition:background .15s,color .15s,border-color .15s;
+  user-select:none;
+}
+.nav-item svg{width:16px;height:16px;flex-shrink:0;opacity:.8;}
+.nav-item:hover{background:var(--panel-2);color:var(--text);}
+.nav-item.active{
+  background:var(--panel-3);
+  color:var(--text);
+  border-color:var(--border);
+  box-shadow:inset 2px 0 0 var(--teal);
+}
+.nav-group-label{
+  font-size:10px;text-transform:uppercase;letter-spacing:.1em;
+  color:var(--muted-2);padding:14px 12px 2px;font-weight:600;
+}
+
+.sidebar-footer{
+  margin-top:auto;
+  border-top:1px solid var(--border-soft);
+  padding-top:14px;
+  font-size:11px;color:var(--muted-2);font-family:var(--font-mono);
+  display:flex;flex-direction:column;gap:6px;
+}
+.sync-dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--green);margin-right:6px;box-shadow:0 0 8px var(--green);}
+
+/* MAIN ----------------------------------------------------------------- */
+.main{
+  min-width:0;
+  padding:20px 26px 60px;
+}
+.topbar{
+  display:flex;align-items:center;justify-content:space-between;
+  gap:16px;flex-wrap:wrap;
+  margin-bottom:22px;
+}
+.topbar h1{
+  font-size:19px;margin:0;font-weight:700;letter-spacing:-.01em;
+}
+.topbar .subtitle{color:var(--muted);font-size:12.5px;margin-top:3px;}
+.topbar-actions{display:flex;gap:10px;flex-wrap:wrap;}
+
+.btn{
+  display:inline-flex;align-items:center;gap:7px;
+  padding:9px 14px;border-radius:8px;
+  border:1px solid var(--border);
+  background:var(--panel-2);
+  color:var(--text);
+  font-size:12.5px;font-weight:600;
+  cursor:pointer;
+  transition:transform .1s, border-color .15s, background .15s;
+  white-space:nowrap;
+}
+.btn svg{width:14px;height:14px;}
+.btn:hover{border-color:var(--teal);background:var(--panel-3);}
+.btn:active{transform:translateY(1px);}
+.btn-primary{
+  background:linear-gradient(135deg,var(--teal),#22b8a3);
+  color:#03140f;border-color:transparent;
+}
+.btn-primary:hover{filter:brightness(1.08);}
+.btn-amber{background:linear-gradient(135deg,var(--amber),#d68a12);color:#241600;border-color:transparent;}
+.btn-ghost{background:transparent;}
+.btn-sm{padding:6px 10px;font-size:11.5px;}
+.btn-danger{background:var(--red-dim);border-color:#5c231d;color:#ffb3ac;}
+
+/* VIEWS ------------------------------------------------------------- */
+.view{display:none;animation:fadeIn .25s ease;}
+.view.active{display:block;}
+@keyframes fadeIn{from{opacity:0;transform:translateY(4px);}to{opacity:1;transform:translateY(0);}}
+
+/* ---------------------------------------------------------------------
+   PANEL / CARD PRIMITIVES
+--------------------------------------------------------------------- */
+.panel{
+  background:var(--panel);
+  border:1px solid var(--border);
+  border-radius:var(--radius-lg);
+  padding:18px;
+}
+.panel-head{
+  display:flex;align-items:flex-start;justify-content:space-between;
+  margin-bottom:14px;gap:10px;flex-wrap:wrap;
+}
+.panel-title{font-size:13.5px;font-weight:700;letter-spacing:.01em;}
+.panel-desc{font-size:11.5px;color:var(--muted);margin-top:3px;max-width:520px;line-height:1.5;}
+.eyebrow{
+  font-family:var(--font-mono);font-size:10px;letter-spacing:.12em;
+  color:var(--teal);text-transform:uppercase;font-weight:600;margin-bottom:4px;display:block;
+}
+
+.grid{display:grid;gap:16px;}
+.grid-4{grid-template-columns:repeat(4,1fr);}
+.grid-3{grid-template-columns:repeat(3,1fr);}
+.grid-2{grid-template-columns:repeat(2,1fr);}
+@media(max-width:1200px){.grid-4{grid-template-columns:repeat(2,1fr);} .grid-3{grid-template-columns:repeat(2,1fr);}}
+@media(max-width:720px){.grid-4,.grid-3,.grid-2{grid-template-columns:1fr;}}
+
+/* KPI CARDS ------------------------------------------------------------ */
+.kpi-card{
+  background:linear-gradient(160deg,var(--panel-2),var(--panel));
+  border:1px solid var(--border);
+  border-radius:var(--radius-lg);
+  padding:16px 18px;
+  position:relative;
+  overflow:hidden;
+}
+.kpi-card::after{
+  content:"";position:absolute;inset:0;
+  background:linear-gradient(120deg,transparent 40%, rgba(255,255,255,.03) 50%, transparent 60%);
+  pointer-events:none;
+}
+.kpi-label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.07em;font-weight:600;}
+.kpi-value{font-family:var(--font-mono);font-size:28px;font-weight:700;margin-top:8px;line-height:1;}
+.kpi-unit{font-size:13px;color:var(--muted);font-weight:500;margin-left:4px;}
+.kpi-sub{margin-top:9px;font-size:11.5px;color:var(--muted);display:flex;align-items:center;gap:5px;}
+.kpi-delta-up{color:var(--green);font-weight:700;}
+.kpi-delta-down{color:var(--red);font-weight:700;}
+.kpi-accent-teal{border-top:2px solid var(--teal);}
+.kpi-accent-amber{border-top:2px solid var(--amber);}
+.kpi-accent-green{border-top:2px solid var(--green);}
+.kpi-accent-blue{border-top:2px solid var(--blue);}
+
+/* CAPITAL FLOW METER (signature element) -------------------------------- */
+.flow-meter{
+  display:flex;align-items:center;gap:18px;
+  background:radial-gradient(circle at 0% 0%, rgba(45,212,191,.08), transparent 60%), var(--panel);
+  border:1px solid var(--border);border-radius:var(--radius-lg);
+  padding:18px 20px;margin-bottom:18px;
+  flex-wrap:wrap;
+}
+.flow-meter-label{min-width:190px;}
+.flow-meter-label .eyebrow{margin-bottom:6px;}
+.flow-meter-label .big{font-family:var(--font-mono);font-size:24px;font-weight:700;}
+.flow-track{
+  flex:1;min-width:220px;height:10px;border-radius:6px;
+  background:var(--panel-3);
+  overflow:hidden;position:relative;
+  border:1px solid var(--border-soft);
+}
+.flow-fill{
+  height:100%;border-radius:6px;
+  background:repeating-linear-gradient(90deg,var(--teal) 0 14px, #1c8f81 14px 16px);
+  background-size:200% 100%;
+  animation:flowMove 2.2s linear infinite;
+  transition:width .6s ease;
+}
+@keyframes flowMove{from{background-position:0 0;}to{background-position:-32px 0;}}
+.flow-caption{font-size:11px;color:var(--muted);font-family:var(--font-mono);white-space:nowrap;}
+@media (prefers-reduced-motion: reduce){.flow-fill{animation:none;}}
+
+/* ALERTS ----------------------------------------------------------------*/
+.alert-row{
+  display:flex;align-items:center;gap:12px;
+  padding:11px 12px;border-radius:9px;
+  background:var(--panel-2);
+  border:1px solid var(--border-soft);
+  margin-bottom:8px;
+}
+.alert-row.sev-critical{border-left:3px solid var(--red);}
+.alert-row.sev-warn{border-left:3px solid var(--amber);}
+.alert-icon{
+  width:30px;height:30px;border-radius:7px;flex-shrink:0;
+  display:flex;align-items:center;justify-content:center;
+  font-size:14px;
+}
+.sev-critical .alert-icon{background:var(--red-dim);color:var(--red);}
+.sev-warn .alert-icon{background:var(--amber-dim);color:var(--amber);}
+.alert-body{flex:1;min-width:0;}
+.alert-title{font-size:13px;font-weight:600;}
+.alert-meta{font-size:11px;color:var(--muted);font-family:var(--font-mono);margin-top:2px;}
+.alert-pill{
+  font-family:var(--font-mono);font-size:11px;font-weight:700;
+  padding:4px 9px;border-radius:20px;white-space:nowrap;
+}
+.sev-critical .alert-pill{background:var(--red-dim);color:#ffb3ac;}
+.sev-warn .alert-pill{background:var(--amber-dim);color:var(--amber);}
+.empty-state{
+  text-align:center;padding:26px 10px;color:var(--muted);font-size:12.5px;
+}
+
+/* TABLES ------------------------------------------------------------- */
+.table-wrap{overflow-x:auto;border-radius:10px;border:1px solid var(--border-soft);}
+table{width:100%;border-collapse:collapse;font-size:12.5px;min-width:640px;}
+thead th{
+  text-align:left;padding:10px 12px;
+  background:var(--panel-2);
+  color:var(--muted);font-weight:600;font-size:10.5px;
+  text-transform:uppercase;letter-spacing:.06em;
+  border-bottom:1px solid var(--border);
+  white-space:nowrap;
+}
+tbody td{
+  padding:10px 12px;border-bottom:1px solid var(--border-soft);
+  vertical-align:middle;
+}
+tbody tr:hover{background:rgba(255,255,255,.02);}
+tbody tr:last-child td{border-bottom:none;}
+td input[type=text],td input[type=number],td select{
+  width:100%;min-width:70px;padding:6px 7px;font-size:11.5px;border-radius:6px;
+}
+td .row-actions{display:flex;gap:6px;}
+td .cat-custom-input{margin-top:6px;}
+td.num,th.num{text-align:right;font-family:var(--font-mono);}
+.tag{
+  display:inline-block;padding:3px 9px;border-radius:20px;
+  font-size:10.5px;font-weight:700;font-family:var(--font-mono);
+}
+.tag-A{background:var(--green-dim);color:var(--green);}
+.tag-B{background:#1a2e46;color:var(--blue);}
+.tag-C{background:var(--panel-3);color:var(--muted);}
+.tag-X{background:var(--teal-dim);color:var(--teal);}
+.tag-Y{background:var(--amber-dim);color:var(--amber);}
+.tag-Z{background:var(--red-dim);color:#ffb3ac;}
+.status-dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:6px;}
+
+/* ABC-XYZ MATRIX --------------------------------------------------------*/
+.matrix{
+  display:grid;
+  grid-template-columns:60px repeat(3,1fr);
+  grid-template-rows:auto repeat(3,minmax(120px,auto));
+  gap:8px;
+}
+.matrix .corner{}
+.matrix .col-label,.matrix .row-label{
+  display:flex;align-items:center;justify-content:center;
+  font-size:11px;color:var(--muted);font-weight:700;font-family:var(--font-mono);
+  text-transform:uppercase;letter-spacing:.06em;
+}
+.matrix .row-label{writing-mode:vertical-rl;transform:rotate(180deg);}
+.matrix-cell{
+  background:var(--panel-2);border:1px solid var(--border-soft);
+  border-radius:10px;padding:10px;
+  display:flex;flex-direction:column;gap:6px;min-height:120px;
+}
+.matrix-cell .cell-tag{font-size:10px;color:var(--muted-2);font-family:var(--font-mono);margin-bottom:2px;}
+.matrix-chip{
+  background:var(--panel-3);border:1px solid var(--border-soft);
+  border-radius:7px;padding:5px 8px;font-size:11px;
+  display:flex;justify-content:space-between;gap:8px;
+}
+.matrix-chip .sku-name{font-weight:600;}
+.matrix-chip .sku-rev{font-family:var(--font-mono);color:var(--muted);font-size:10.5px;}
+.mcell-AX{box-shadow:inset 0 0 0 1px rgba(74,222,128,.35);}
+.mcell-CZ{box-shadow:inset 0 0 0 1px rgba(240,85,74,.35);}
+
+/* FORMS ------------------------------------------------------------- */
+.form-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;}
+@media(max-width:640px){.form-grid{grid-template-columns:1fr;}}
+label{font-size:11.5px;color:var(--muted);font-weight:600;display:block;margin-bottom:5px;}
+input[type=text],input[type=number],input[type=date],select{
+  width:100%;padding:9px 10px;border-radius:8px;
+  border:1px solid var(--border);background:var(--panel-2);
+  color:var(--text);font-family:var(--font-mono);font-size:12.5px;
+}
+input:focus,select:focus{border-color:var(--teal);}
+.field{margin-bottom:4px;}
+.form-actions{display:flex;gap:10px;margin-top:14px;justify-content:flex-end;}
+.help-text{font-size:11px;color:var(--muted-2);margin-top:5px;line-height:1.5;}
+
+.tabs-mini{display:flex;gap:6px;margin-bottom:16px;flex-wrap:wrap;}
+.tab-mini{
+  padding:8px 14px;border-radius:8px;border:1px solid var(--border);
+  background:var(--panel-2);font-size:12px;font-weight:600;color:var(--muted);
+  cursor:pointer;
+}
+.tab-mini.active{background:var(--panel-3);color:var(--text);border-color:var(--teal);}
+
+.formula-box{
+  background:var(--panel-2);border:1px dashed var(--border);
+  border-radius:9px;padding:10px 12px;margin-top:10px;
+  font-family:var(--font-mono);font-size:11.5px;color:var(--teal);
+  line-height:1.6;overflow-x:auto;
+}
+.formula-box .fx-note{color:var(--muted);font-family:var(--font-ui);display:block;margin-top:2px;font-size:11px;}
+
+.section-gap{margin-top:20px;}
+.two-col{display:grid;grid-template-columns:1.3fr 1fr;gap:16px;}
+@media(max-width:980px){.two-col{grid-template-columns:1fr;}}
+
+.chart-holder{position:relative;height:340px;}
+.legend-row{display:flex;gap:16px;flex-wrap:wrap;margin-top:12px;font-size:11.5px;color:var(--muted);}
+.legend-dot{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:6px;}
+
+.settings-row{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:14px 0;border-bottom:1px solid var(--border-soft);gap:16px;flex-wrap:wrap;
+}
+.settings-row:last-child{border-bottom:none;}
+.settings-row .st-label{font-size:13px;font-weight:600;}
+.settings-row .st-desc{font-size:11.5px;color:var(--muted);margin-top:3px;max-width:480px;}
+.settings-row .st-control{min-width:180px;}
+input[type=range]{width:100%;accent-color:var(--teal);}
+
+.toast{
+  position:fixed;bottom:22px;right:22px;
+  background:var(--panel-3);border:1px solid var(--teal);
+  padding:12px 16px;border-radius:9px;font-size:12.5px;
+  box-shadow:var(--shadow);z-index:999;
+  display:flex;align-items:center;gap:8px;
+  transform:translateY(20px);opacity:0;
+  transition:transform .25s ease, opacity .25s ease;
+}
+.toast.show{transform:translateY(0);opacity:1;}
+
+.small-muted{font-size:11px;color:var(--muted-2);}
+.divider{height:1px;background:var(--border-soft);margin:16px 0;}
+
+.mobile-topnav{display:none;}
+@media(max-width:880px){
+  .app-shell{grid-template-columns:1fr;}
+  .sidebar{display:none;}
+  .mobile-topnav{
+    display:flex;gap:6px;overflow-x:auto;padding:12px 14px;
+    border-bottom:1px solid var(--border);background:var(--panel);
+    position:sticky;top:0;z-index:50;
+  }
+  .mobile-topnav .nav-item{flex-shrink:0;}
+  .main{padding:16px;}
+}
+</style>
+</head>
+<body>
+
+<div class="app-shell">
+
+  <!-- ============================= SIDEBAR ============================= -->
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-mark">FD</div>
+      <div class="brand-text">
+        <div class="name">FlowDesk</div>
+        <div class="tag">Inventory Console</div>
+      </div>
+    </div>
+
+    <nav class="nav" id="sideNav">
+      <div class="nav-group-label">Monitor</div>
+      <div class="nav-item" data-route="overview">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>
+        Overview
+      </div>
+      <div class="nav-item" data-route="inventory">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7l9-4 9 4-9 4-9-4Z"/><path d="M3 7v10l9 4 9-4V7"/><path d="M12 11v10"/></svg>
+        Inventory &amp; ABC-XYZ
+      </div>
+      <div class="nav-item" data-route="forecasting">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 17l5-6 4 3 5-7 4 4"/></svg>
+        Forecasting
+      </div>
+      <div class="nav-group-label">Operate</div>
+      <div class="nav-item" data-route="dataops">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v10"/><path d="M7 8l5 5 5-5"/><path d="M4 17h16v4H4z"/></svg>
+        Data Ops
+      </div>
+      <div class="nav-item" data-route="settings">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V21a2 2 0 1 1-4 0v-.09A1.7 1.7 0 0 0 9 19.4a1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.55-1H3a2 2 0 1 1 0-4h.09A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-1.55V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.55 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 9c.11.36.31.68.6.9"/></svg>
+        Settings
+      </div>
+    </nav>
+
+    <div class="sidebar-footer">
+      <div><span class="sync-dot"></span>localStorage synced</div>
+      <div id="lastUpdated">—</div>
+    </div>
+  </aside>
+
+  <!-- ============================= MOBILE NAV ============================= -->
+  <div class="mobile-topnav" id="mobileNav"></div>
+
+  <!-- ============================= MAIN ============================= -->
+  <main class="main">
+
+    <div class="topbar">
+      <div>
+        <h1 id="viewHeading">Overview</h1>
+        <div class="subtitle" id="viewSubheading">Working capital &amp; stockout risk at a glance</div>
+      </div>
+      <div class="topbar-actions">
+        <button class="btn" id="btnExportExcel">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
+          Export Excel
+        </button>
+        <button class="btn" id="btnExportPDF">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
+          Export PDF
+        </button>
+        <button class="btn btn-ghost" id="btnLoadSample">Load sample data</button>
+        <button class="btn btn-danger" id="btnResetData">Clear all data</button>
+      </div>
+    </div>
+
+    <!-- ======================= OVERVIEW ======================= -->
+    <section class="view active" id="view-overview">
+
+      <div class="flow-meter">
+        <div class="flow-meter-label">
+          <span class="eyebrow">Cash Conversion Velocity</span>
+          <div class="big mono" id="ccvBig">— turns/yr</div>
+        </div>
+        <div class="flow-track"><div class="flow-fill" id="flowFill" style="width:40%"></div></div>
+        <div class="flow-caption mono" id="flowCaption">₹0/day cycling out of inventory</div>
+      </div>
+
+      <div class="grid grid-4" id="kpiGrid"></div>
+
+      <div class="two-col section-gap">
+        <div class="panel">
+          <div class="panel-head">
+            <div>
+              <span class="eyebrow">Attention required</span>
+              <div class="panel-title">Critical Restock Alerts</div>
+              <div class="panel-desc">SKUs where on-hand units have fallen at or below their dynamic reorder point (ROP). Sorted by days-of-cover remaining.</div>
+            </div>
+            <span class="tag tag-C" id="alertCount">0 alerts</span>
+          </div>
+          <div id="alertList"></div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head">
+            <div>
+              <span class="eyebrow">Capital released</span>
+              <div class="panel-title">Working Capital Savings</div>
+              <div class="panel-desc">Cash freed by moving from a flat buffer policy to statistically-derived safety stock.</div>
+            </div>
+          </div>
+          <div class="chart-holder" style="height:220px;"><canvas id="savingsChart"></canvas></div>
+          <div class="divider"></div>
+          <div class="formula-box">
+            SS_baseline = avgDailyDemand × leadTimeDays × bufferPct
+            <br>SS_optimized = Z × σ_demand × √(leadTimeDays)
+            <br>Savings = Σ (SS_baseline − SS_optimized) × unitCost
+            <span class="fx-note">Z is the service-level factor set in Settings (e.g. 1.65 ≈ 95% service level).</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel section-gap">
+        <div class="panel-head">
+          <div>
+            <span class="eyebrow">Live feed</span>
+            <div class="panel-title">Recent Inventory Movements</div>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Date</th><th>Type</th><th>SKU</th><th>Product</th><th class="num">Qty</th><th class="num">Value</th></tr></thead>
+            <tbody id="recentTxBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ======================= INVENTORY / ABC-XYZ ======================= -->
+    <section class="view" id="view-inventory">
+
+      <div class="panel">
+        <div class="panel-head">
+          <div>
+            <span class="eyebrow">Segmentation</span>
+            <div class="panel-title">ABC–XYZ Inventory Matrix</div>
+            <div class="panel-desc">A = top revenue contributors (Pareto), C = long-tail. X = stable demand, Z = volatile demand. AX cells deserve tight stock control; CZ cells are prime candidates for capital release.</div>
+          </div>
+        </div>
+        <div class="matrix" id="matrixGrid"></div>
+        <div class="legend-row">
+          <span><span class="legend-dot" style="background:var(--green)"></span>AX — top priority, keep in stock</span>
+          <span><span class="legend-dot" style="background:var(--red)"></span>CZ — release capital, review need</span>
+        </div>
+      </div>
+
+      <div class="panel section-gap">
+        <div class="panel-head">
+          <div>
+            <span class="eyebrow">Replenishment</span>
+            <div class="panel-title">Dynamic Reorder Points &amp; EOQ</div>
+            <div class="panel-desc">Reorder point and economic order quantity recalculated live from current demand signals and the cost assumptions set in Settings.</div>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>SKU</th><th>Product</th><th>Class</th>
+                <th class="num">On hand</th><th class="num">Avg daily demand</th>
+                <th class="num">Safety stock</th><th class="num">Reorder point</th>
+                <th class="num">EOQ</th><th class="num">Days of cover</th><th>Status</th>
+              </tr>
+            </thead>
+            <tbody id="inventoryTableBody"></tbody>
+          </table>
+        </div>
+        <div class="formula-box">
+          EOQ = √( (2 × D_annual × orderingCost) / holdingCostPerUnit )
+          <span class="fx-note">D_annual = avgDailyDemand × 365. holdingCostPerUnit = unitCost × holdingCostPct. Balances ordering cost against carrying cost to find the least-cost order size.</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ======================= FORECASTING ======================= -->
+    <section class="view" id="view-forecasting">
+      <div class="panel">
+        <div class="panel-head">
+          <div>
+            <span class="eyebrow">Demand model</span>
+            <div class="panel-title">30–90 Day Forward Demand Forecast</div>
+            <div class="panel-desc">Simulated trend + weekly seasonality + noise decomposition over 60 days of history, projected forward with a widening confidence band — mirroring the shape of Prophet/ARIMA output.</div>
+          </div>
+        </div>
+
+        <div class="tabs-mini" id="forecastSkuTabs"></div>
+
+        <div class="form-grid" style="grid-template-columns:repeat(3,1fr);margin-bottom:14px;">
+          <div class="field">
+            <label for="forecastHorizon">Forecast horizon</label>
+            <select id="forecastHorizon">
+              <option value="30">30 days</option>
+              <option value="60" selected>60 days</option>
+              <option value="90">90 days</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Projected demand (horizon)</label>
+            <div class="kpi-value mono" style="font-size:20px;" id="forecastTotalDemand">—</div>
+          </div>
+          <div class="field">
+            <label>Recommended pre-build units</label>
+            <div class="kpi-value mono" style="font-size:20px;color:var(--amber);" id="forecastRecommend">—</div>
+          </div>
+        </div>
+
+        <div class="chart-holder"><canvas id="forecastChart"></canvas></div>
+        <div class="legend-row">
+          <span><span class="legend-dot" style="background:#5b9cf5"></span>Historical demand</span>
+          <span><span class="legend-dot" style="background:var(--amber)"></span>Forecast (mean)</span>
+          <span><span class="legend-dot" style="background:rgba(245,166,35,.25)"></span>Confidence band</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ======================= DATA OPS ======================= -->
+    <section class="view" id="view-dataops">
+
+      <div class="grid grid-3">
+        <div class="panel">
+          <span class="eyebrow">Inbound</span>
+          <div class="panel-title" style="margin-bottom:10px;">Log Wholesaler Purchase</div>
+          <form id="formPurchase">
+            <div class="field"><label>SKU</label><select class="sel-sku" name="sku" required></select></div>
+            <div class="field"><label>Quantity received</label><input type="number" name="qty" min="1" required placeholder="e.g. 40"></div>
+            <div class="field"><label>Unit cost (₹)</label><input type="number" name="cost" min="0" step="0.01" placeholder="Optional — keeps current cost if blank"></div>
+            <div class="field"><label>Date</label><input type="date" name="date" required></div>
+            <div class="form-actions"><button type="submit" class="btn btn-primary">Add purchase</button></div>
+          </form>
+        </div>
+
+        <div class="panel">
+          <span class="eyebrow">Outbound</span>
+          <div class="panel-title" style="margin-bottom:10px;">Log Retailer Sale</div>
+          <form id="formSale">
+            <div class="field"><label>SKU</label><select class="sel-sku" name="sku" required></select></div>
+            <div class="field"><label>Quantity sold</label><input type="number" name="qty" min="1" required placeholder="e.g. 12"></div>
+            <div class="field"><label>Unit price (₹)</label><input type="number" name="price" min="0" step="0.01" placeholder="Optional — keeps current price if blank"></div>
+            <div class="field"><label>Date</label><input type="date" name="date" required></div>
+            <div class="form-actions"><button type="submit" class="btn btn-amber">Add sale</button></div>
+          </form>
+        </div>
+
+        <div class="panel">
+          <span class="eyebrow">Reverse logistics</span>
+          <div class="panel-title" style="margin-bottom:10px;">Log Product Return</div>
+          <form id="formReturn">
+            <div class="field"><label>SKU</label><select class="sel-sku" name="sku" required></select></div>
+            <div class="field"><label>Quantity returned</label><input type="number" name="qty" min="1" required placeholder="e.g. 3"></div>
+            <div class="field"><label>Reason</label>
+              <select name="reason">
+                <option>Defective</option>
+                <option>Wrong item shipped</option>
+                <option>Retailer overstock</option>
+                <option>Customer change of mind</option>
+              </select>
+            </div>
+            <div class="field"><label>Date</label><input type="date" name="date" required></div>
+            <div class="form-actions"><button type="submit" class="btn">Add return</button></div>
+          </form>
+        </div>
+      </div>
+
+      <div class="panel section-gap">
+        <div class="panel-head">
+          <div>
+            <span class="eyebrow">Ledger</span>
+            <div class="panel-title">Transaction History</div>
+            <div class="panel-desc">Every entry recalculates on-hand stock, reorder points and dashboard KPIs immediately.</div>
+          </div>
+          <button class="btn btn-sm btn-danger" id="btnClearTx">Clear history</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Date</th><th>Type</th><th>SKU</th><th>Product</th><th class="num">Qty</th><th class="num">Unit ₹</th><th class="num">Value</th><th></th></tr></thead>
+            <tbody id="txTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ======================= SETTINGS ======================= -->
+    <section class="view" id="view-settings">
+      <div class="panel">
+        <div class="panel-head">
+          <div>
+            <span class="eyebrow">Model assumptions</span>
+            <div class="panel-title">Supply Chain Parameters</div>
+            <div class="panel-desc">These feed every formula on the console — safety stock, EOQ, reorder points and working capital savings all recompute live as you adjust them.</div>
+          </div>
+        </div>
+
+        <div class="settings-row">
+          <div><div class="st-label">Target service level</div><div class="st-desc">Higher service level → larger statistical safety stock → fewer stockouts, more cash tied up. Mapped to a Z-score.</div></div>
+          <div class="st-control">
+            <select id="setServiceLevel">
+              <option value="1.28">90% (Z=1.28)</option>
+              <option value="1.65" selected>95% (Z=1.65)</option>
+              <option value="1.96">97.5% (Z=1.96)</option>
+              <option value="2.33">99% (Z=2.33)</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="settings-row">
+          <div><div class="st-label">Legacy safety-stock buffer</div><div class="st-desc">The old flat-percentage policy being replaced — used only to compute the "savings" baseline.</div></div>
+          <div class="st-control">
+            <input type="range" id="setBufferPct" min="10" max="60" value="35">
+            <div class="small-muted mono" id="setBufferPctLabel">35% of lead-time demand</div>
+          </div>
+        </div>
+
+        <div class="settings-row">
+          <div><div class="st-label">Annual holding cost</div><div class="st-desc">Cost of capital, storage, insurance and obsolescence, as a % of unit cost per year.</div></div>
+          <div class="st-control">
+            <input type="range" id="setHoldingCost" min="5" max="40" value="22">
+            <div class="small-muted mono" id="setHoldingCostLabel">22% / year</div>
+          </div>
+        </div>
+
+        <div class="settings-row">
+          <div><div class="st-label">Ordering cost per PO</div><div class="st-desc">Fixed admin/freight cost incurred every time a purchase order is placed with a wholesaler.</div></div>
+          <div class="st-control"><input type="number" id="setOrderingCost" value="60" min="1"></div>
+        </div>
+
+        <div class="settings-row">
+          <div><div class="st-label">Currency symbol</div><div class="st-desc">Cosmetic only — used to prefix all monetary figures on the console.</div></div>
+          <div class="st-control"><input type="text" id="setCurrency" value="₹" maxlength="3"></div>
+        </div>
+
+        <div class="form-actions">
+          <button class="btn btn-primary" id="btnSaveSettings">Save &amp; recalculate</button>
+        </div>
+      </div>
+
+      <div class="panel section-gap">
+        <div class="panel-head">
+          <div>
+            <span class="eyebrow">Catalog</span>
+            <div class="panel-title">Edit Products</div>
+            <div class="panel-desc">Every field below is live — edit costs, prices, on-hand counts or demand stats and hit Save. This is also where you correct a stock count or retire a SKU.</div>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>SKU</th><th>Name</th><th>Category</th>
+                <th class="num">Unit cost</th><th class="num">Unit price</th>
+                <th class="num">On hand</th><th class="num">Avg daily demand</th>
+                <th class="num">Demand σ</th><th class="num">Lead time (d)</th><th></th>
+              </tr>
+            </thead>
+            <tbody id="catalogTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="panel section-gap">
+        <div class="panel-head">
+          <div><span class="eyebrow">Catalog</span><div class="panel-title">Add New SKU</div></div>
+        </div>
+        <form id="formNewSku" class="form-grid">
+          <div class="field"><label>SKU code</label><input type="text" name="sku" required placeholder="e.g. CCTV-104"></div>
+          <div class="field"><label>Product name</label><input type="text" name="name" required placeholder="e.g. 4-Channel NVR Kit"></div>
+          <div class="field"><label>Category</label>
+            <select name="category" id="newSkuCategory"><option>UPS Systems</option><option>Laptops</option><option>CCTV</option><option>Networking</option><option>Accessories</option><option value="__other__">Others</option></select>
+          </div>
+          <div class="field hidden" id="newSkuCustomCategoryField">
+            <label>New category name</label>
+            <input type="text" id="newSkuCustomCategory" placeholder="e.g. Smart Home Devices">
+          </div>
+          <div class="field"><label>Unit cost (₹)</label><input type="number" name="unitCost" min="0" step="0.01" required></div>
+          <div class="field"><label>Unit price (₹)</label><input type="number" name="unitPrice" min="0" step="0.01" required></div>
+          <div class="field"><label>Opening on-hand qty</label><input type="number" name="onHand" min="0" required></div>
+          <div class="field"><label>Avg daily demand (units)</label><input type="number" name="avgDailyDemand" min="0.1" step="0.1" required></div>
+          <div class="field"><label>Demand std. deviation</label><input type="number" name="demandStdDev" min="0" step="0.1" required></div>
+          <div class="field"><label>Lead time (days)</label><input type="number" name="leadTimeDays" min="1" required></div>
+          <div class="form-actions" style="grid-column:1/-1;"><button type="submit" class="btn btn-primary">Add SKU to catalog</button></div>
+        </form>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+/* ==========================================================================
+   FLOWDESK — INVENTORY & WORKING CAPITAL CONSOLE
+   Pure client-side app. All persistence via localStorage. No backend.
+   ========================================================================== */
+
+/* --------------------------------------------------------------------------
+   1. STORAGE KEYS & DEFAULT / MOCK DATA
+-------------------------------------------------------------------------- */
+const LS_PRODUCTS = 'flowdesk_products';
+const LS_TX       = 'flowdesk_transactions';
+const LS_SETTINGS = 'flowdesk_settings';
+
+const DEFAULT_SETTINGS = {
+  serviceLevelZ: 1.65,   // Z-score for statistical safety stock (95% default)
+  legacyBufferPct: 0.35, // old flat safety-stock policy, % of lead-time demand
+  holdingCostPct: 0.22,  // annual holding cost as % of unit cost
+  orderingCost: 60,      // ₹ fixed cost per purchase order
+  currency: '₹'
+};
+
+// Sample catalog: a realistic electronics-distributor SKU mix, offered as an
+// OPT-IN starting point via the "Load sample data" button. It is never
+// loaded automatically — the console starts completely empty so every
+// number on screen comes from data the user enters themselves.
+// avgDailyDemand / demandStdDev are derived from simulated historical sales
+// and drive every downstream formula (safety stock, ROP, EOQ, ABC-XYZ).
+const SAMPLE_PRODUCTS = [
+  { id:'p1',  sku:'UPS-1000',  name:'1000VA Line-Interactive UPS', category:'UPS Systems', unitCost:58,  unitPrice:95,  onHand:34,  avgDailyDemand:5.2, demandStdDev:1.1, leadTimeDays:12 },
+  { id:'p2',  sku:'UPS-3000',  name:'3000VA Rackmount UPS',        category:'UPS Systems', unitCost:210, unitPrice:329, onHand:9,   avgDailyDemand:1.4, demandStdDev:0.9, leadTimeDays:18 },
+  { id:'p3',  sku:'LAP-14BIZ', name:'14" Business Laptop i5',      category:'Laptops',     unitCost:410, unitPrice:589, onHand:22,  avgDailyDemand:3.1, demandStdDev:1.6, leadTimeDays:15 },
+  { id:'p4',  sku:'LAP-15PRO', name:'15" Pro Laptop i7',           category:'Laptops',     unitCost:690, unitPrice:949, onHand:6,   avgDailyDemand:1.1, demandStdDev:1.0, leadTimeDays:20 },
+  { id:'p5',  sku:'CCTV-4CH',  name:'4-Channel CCTV Kit + DVR',    category:'CCTV',        unitCost:96,  unitPrice:159, onHand:41,  avgDailyDemand:4.6, demandStdDev:1.3, leadTimeDays:10 },
+  { id:'p6',  sku:'CCTV-8CH',  name:'8-Channel NVR CCTV Kit',      category:'CCTV',        unitCost:175, unitPrice:279, onHand:11,  avgDailyDemand:1.8, demandStdDev:1.5, leadTimeDays:14 },
+  { id:'p7',  sku:'CCTV-DOME', name:'Outdoor Dome Camera (single)',category:'CCTV',        unitCost:22,  unitPrice:39,  onHand:120, avgDailyDemand:9.4, demandStdDev:2.0, leadTimeDays:7 },
+  { id:'p8',  sku:'NET-SW24',  name:'24-Port Gigabit Switch',      category:'Networking',  unitCost:64,  unitPrice:109, onHand:15,  avgDailyDemand:2.0, demandStdDev:1.7, leadTimeDays:9 },
+  { id:'p9',  sku:'NET-AP1',   name:'Wi-Fi 6 Access Point',        category:'Networking',  unitCost:38,  unitPrice:69,  onHand:53,  avgDailyDemand:6.0, demandStdDev:1.4, leadTimeDays:8 },
+  { id:'p10', sku:'ACC-HDD2T', name:'2TB Surveillance HDD',        category:'Accessories', unitCost:41,  unitPrice:68,  onHand:8,   avgDailyDemand:3.5, demandStdDev:2.4, leadTimeDays:11 },
+  { id:'p11', sku:'ACC-CBL',   name:'CAT6 Cable Spool 305m',       category:'Accessories', unitCost:29,  unitPrice:49,  onHand:60,  avgDailyDemand:2.2, demandStdDev:2.1, leadTimeDays:6 },
+  { id:'p12', sku:'UPS-650',   name:'650VA Desktop UPS',           category:'UPS Systems', unitCost:19,  unitPrice:34,  onHand:75,  avgDailyDemand:7.8, demandStdDev:1.2, leadTimeDays:9 },
+];
+
+// Sample transaction ledger (a few days of history) loaded only alongside
+// SAMPLE_PRODUCTS when the user explicitly clicks "Load sample data".
+function generateSampleTransactions(){
+  const today = new Date();
+  const days = (n)=>{const d=new Date(today); d.setDate(d.getDate()-n); return d.toISOString().slice(0,10);};
+  return [
+    { id:tid(), date:days(6), type:'purchase', sku:'UPS-1000', qty:40, unitVal:58 },
+    { id:tid(), date:days(6), type:'purchase', sku:'CCTV-DOME', qty:100, unitVal:22 },
+    { id:tid(), date:days(5), type:'sale', sku:'UPS-1000', qty:12, unitVal:95 },
+    { id:tid(), date:days(5), type:'sale', sku:'CCTV-4CH', qty:8, unitVal:159 },
+    { id:tid(), date:days(4), type:'sale', sku:'LAP-15PRO', qty:2, unitVal:949 },
+    { id:tid(), date:days(4), type:'return', sku:'LAP-14BIZ', qty:1, unitVal:589 },
+    { id:tid(), date:days(3), type:'purchase', sku:'NET-AP1', qty:30, unitVal:38 },
+    { id:tid(), date:days(2), type:'sale', sku:'CCTV-DOME', qty:22, unitVal:39 },
+    { id:tid(), date:days(2), type:'sale', sku:'ACC-HDD2T', qty:5, unitVal:68 },
+    { id:tid(), date:days(1), type:'sale', sku:'UPS-650', qty:14, unitVal:34 },
+    { id:tid(), date:days(1), type:'return', sku:'CCTV-8CH', qty:1, unitVal:279 },
+    { id:tid(), date:days(0), type:'sale', sku:'LAP-14BIZ', qty:3, unitVal:589 },
+  ];
+}
+function tid(){ return 'tx_' + Math.random().toString(36).slice(2,10); }
+
+/* --------------------------------------------------------------------------
+   2. STATE LAYER (localStorage read/write helpers)
+-------------------------------------------------------------------------- */
+const Store = {
+  getProducts(){ return JSON.parse(localStorage.getItem(LS_PRODUCTS) || 'null') || []; },
+  setProducts(p){ localStorage.setItem(LS_PRODUCTS, JSON.stringify(p)); },
+  getTx(){ return JSON.parse(localStorage.getItem(LS_TX) || 'null') || []; },
+  setTx(t){ localStorage.setItem(LS_TX, JSON.stringify(t)); },
+  getSettings(){ return Object.assign({}, DEFAULT_SETTINGS, JSON.parse(localStorage.getItem(LS_SETTINGS) || '{}')); },
+  setSettings(s){ localStorage.setItem(LS_SETTINGS, JSON.stringify(s)); },
+  /** Wipes the console back to a completely empty, editable slate. */
+  resetAll(){
+    localStorage.setItem(LS_PRODUCTS, JSON.stringify([]));
+    localStorage.setItem(LS_TX, JSON.stringify([]));
+    localStorage.setItem(LS_SETTINGS, JSON.stringify(DEFAULT_SETTINGS));
+  },
+  /** Opt-in helper: populates the console with the sample SKU mix and
+   *  ledger so a new user can see every view populated immediately. */
+  loadSample(){
+    localStorage.setItem(LS_PRODUCTS, JSON.stringify(SAMPLE_PRODUCTS.map(p=>Object.assign({},p))));
+    localStorage.setItem(LS_TX, JSON.stringify(generateSampleTransactions()));
+  }
+};
+// First-run initialization — the console starts EMPTY. No demo data is
+// loaded automatically; everything shown is data the user has entered.
+if(!localStorage.getItem(LS_PRODUCTS)) Store.setProducts([]);
+if(!localStorage.getItem(LS_TX)) Store.setTx([]);
+if(!localStorage.getItem(LS_SETTINGS)) Store.setSettings(DEFAULT_SETTINGS);
+
+/* --------------------------------------------------------------------------
+   3. SUPPLY-CHAIN CALCULATION ENGINE
+   Every formula is commented with the business logic it encodes.
+-------------------------------------------------------------------------- */
+const Calc = {
+
+  /** Statistical safety stock: buffers against demand variability during
+   *  the replenishment lead time. Z is the service-level factor;
+   *  higher Z = lower stockout probability but more cash tied up. */
+  safetyStock(p, settings){
+    return settings.serviceLevelZ * p.demandStdDev * Math.sqrt(p.leadTimeDays);
+  },
+
+  /** Legacy flat-percentage buffer this dashboard is designed to replace —
+   *  used only as a "before" baseline for the savings calculation. */
+  legacySafetyStock(p, settings){
+    return p.avgDailyDemand * p.leadTimeDays * settings.legacyBufferPct;
+  },
+
+  /** Reorder Point: the on-hand level that should trigger a new PO.
+   *  ROP = expected demand across lead time + safety buffer. */
+  reorderPoint(p, settings){
+    return (p.avgDailyDemand * p.leadTimeDays) + Calc.safetyStock(p, settings);
+  },
+
+  /** Economic Order Quantity: the order size that minimizes the sum of
+   *  ordering cost (fewer, bigger orders) and holding cost (more, smaller
+   *  orders). Classic Wilson formula. */
+  eoq(p, settings){
+    const annualDemand = p.avgDailyDemand * 365;
+    const holdingCostPerUnit = p.unitCost * settings.holdingCostPct;
+    if(holdingCostPerUnit <= 0) return 0;
+    return Math.sqrt((2 * annualDemand * settings.orderingCost) / holdingCostPerUnit);
+  },
+
+  daysOfCover(p){
+    return p.avgDailyDemand > 0 ? p.onHand / p.avgDailyDemand : Infinity;
+  },
+
+  annualRevenue(p){ return p.avgDailyDemand * 365 * p.unitPrice; },
+  annualCOGS(p){ return p.avgDailyDemand * 365 * p.unitCost; },
+  inventoryValue(p){ return p.onHand * p.unitCost; },
+
+  /** Coefficient of variation of demand — the XYZ volatility signal.
+   *  X: CV < 0.5 (stable), Y: 0.5–1.0 (variable), Z: > 1.0 (erratic). */
+  demandCV(p){ return p.avgDailyDemand > 0 ? p.demandStdDev / p.avgDailyDemand : 0; },
+
+  xyzClass(p){
+    const cv = Calc.demandCV(p);
+    if(cv < 0.5) return 'X';
+    if(cv <= 1.0) return 'Y';
+    return 'Z';
+  },
+
+  /** ABC classification via Pareto analysis on revenue contribution:
+   *  A = cumulative share up to 80%, B = next up to 95%, C = remainder. */
+  abcClassify(products){
+    const withRev = products.map(p => ({ p, rev: Calc.annualRevenue(p) }));
+    withRev.sort((a,b) => b.rev - a.rev);
+    const totalRev = withRev.reduce((s,x) => s + x.rev, 0) || 1;
+    let cum = 0;
+    const out = {};
+    withRev.forEach(x => {
+      cum += x.rev;
+      const share = cum / totalRev;
+      out[x.p.id] = share <= 0.80 ? 'A' : (share <= 0.95 ? 'B' : 'C');
+    });
+    return out; // { productId: 'A'|'B'|'C' }
+  },
+
+  /** Days Sales of Inventory: how many days of COGS are currently sitting
+   *  on the shelf as inventory. Lower DSI = capital moving faster.
+   *  DSI = (Average Inventory Value / Annual COGS) × 365 */
+  dsi(products){
+    const avgInvValue = products.reduce((s,p)=> s + Calc.inventoryValue(p), 0);
+    const annualCOGS = products.reduce((s,p)=> s + Calc.annualCOGS(p), 0);
+    if(annualCOGS <= 0) return 0;
+    return (avgInvValue / annualCOGS) * 365;
+  },
+
+  /** Cash Conversion Velocity: how many times per year the capital parked
+   *  in inventory "turns" into revenue. This is the reciprocal framing of
+   *  DSI (CCV = 365 / DSI), expressed as inventory turns/year — the higher
+   *  the number, the faster cash cycles back into the business. */
+  cashConversionVelocity(products){
+    const d = Calc.dsi(products);
+    return d > 0 ? 365 / d : 0;
+  },
+
+  /** Dollars of inventory value "released" per day of trading —
+   *  used to animate the capital-flow meter on Overview. */
+  dailyCashRelease(products){
+    const annualCOGS = products.reduce((s,p)=> s + Calc.annualCOGS(p), 0);
+    return annualCOGS / 365;
+  },
+
+  /** Working capital savings: cash freed by running statistical safety
+   *  stock instead of the old flat-percentage buffer, summed across the
+   *  whole catalog and valued at unit cost. */
+  workingCapitalSavings(products, settings){
+    return products.reduce((sum,p) => {
+      const legacy = Calc.legacySafetyStock(p, settings);
+      const optimized = Calc.safetyStock(p, settings);
+      const diff = Math.max(0, legacy - optimized);
+      return sum + diff * p.unitCost;
+    }, 0);
+  }
+};
+
+/* --------------------------------------------------------------------------
+   4. UTILITIES
+-------------------------------------------------------------------------- */
+function fmtMoney(n){
+  const s = Store.getSettings();
+  const v = Number(n)||0;
+  return s.currency + v.toLocaleString(undefined,{maximumFractionDigits:0});
+}
+function fmtNum(n, dp=0){ return (Number(n)||0).toLocaleString(undefined,{maximumFractionDigits:dp, minimumFractionDigits:dp}); }
+function todayISO(){ return new Date().toISOString().slice(0,10); }
+function showToast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(showToast._h);
+  showToast._h = setTimeout(()=>t.classList.remove('show'), 2600);
+}
+function findProduct(products, sku){ return products.find(p=>p.sku===sku); }
+
+/* --------------------------------------------------------------------------
+   5. RECOMPUTE ON-HAND FROM TRANSACTIONS
+   Products store a baseline onHand; transactions since "load" adjust it.
+   To keep this simple & robust across refreshes, we treat product.onHand
+   as the live truth and mutate it directly whenever a transaction posts
+   (rather than replaying full history each render). This mirrors how a
+   lightweight POS/inventory system keeps a running balance.
+-------------------------------------------------------------------------- */
+function applyTransactionToStock(tx, products){
+  const p = findProduct(products, tx.sku);
+  if(!p) return;
+  if(tx.type === 'purchase') p.onHand += tx.qty;
+  if(tx.type === 'sale')     p.onHand = Math.max(0, p.onHand - tx.qty);
+  if(tx.type === 'return')   p.onHand += tx.qty;
+}
+
+/* --------------------------------------------------------------------------
+   6. ROUTER
+-------------------------------------------------------------------------- */
+const ROUTES = {
+  overview:    { title:'Overview', sub:'Working capital & stockout risk at a glance' },
+  inventory:   { title:'Inventory & ABC-XYZ', sub:'Segmentation, reorder points and EOQ' },
+  forecasting: { title:'Demand Forecasting', sub:'Forward-looking demand simulation' },
+  dataops:     { title:'Data Ops', sub:'Log purchases, sales and returns' },
+  settings:    { title:'Settings', sub:'Model assumptions & catalog management' },
+};
+
+function navigate(route){
+  if(!ROUTES[route]) route = 'overview';
+  window.location.hash = route;
+  document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
+  document.getElementById('view-'+route).classList.add('active');
+  document.querySelectorAll('.nav-item').forEach(n=>n.classList.toggle('active', n.dataset.route===route));
+  document.getElementById('viewHeading').textContent = ROUTES[route].title;
+  document.getElementById('viewSubheading').textContent = ROUTES[route].sub;
+  renderAll(); // recompute + redraw whenever a tab is opened
+}
+
+function buildNav(){
+  const items = Array.from(document.querySelectorAll('#sideNav .nav-item')).map(el=>({
+    route: el.dataset.route, html: el.innerHTML
+  }));
+  document.querySelectorAll('.nav-item').forEach(el=>{
+    el.addEventListener('click', ()=>navigate(el.dataset.route));
+  });
+  const mobile = document.getElementById('mobileNav');
+  items.forEach(it=>{
+    const d = document.createElement('div');
+    d.className='nav-item'; d.dataset.route = it.route; d.innerHTML = it.html;
+    d.addEventListener('click', ()=>navigate(it.route));
+    mobile.appendChild(d);
+  });
+}
+
+/* --------------------------------------------------------------------------
+   7. CHART INSTANCES (kept global so we can .destroy()/recreate on refresh)
+-------------------------------------------------------------------------- */
+let savingsChartInst = null;
+let forecastChartInst = null;
+let forecastSelectedSku = null;
+
+/* --------------------------------------------------------------------------
+   8. RENDERERS
+-------------------------------------------------------------------------- */
+function renderAll(){
+  const products = Store.getProducts();
+  const tx = Store.getTx();
+  const settings = Store.getSettings();
+
+  populateSkuSelects(products);
+  populateCategorySelects(products);
+  renderOverview(products, tx, settings);
+  renderInventory(products, settings);
+  renderForecasting(products, settings);
+  renderDataOps(products, tx);
+  renderCatalogEditor(products);
+  syncSettingsForm(settings);
+
+  document.getElementById('lastUpdated').textContent = 'Updated ' + new Date().toLocaleTimeString();
+}
+
+/* ---- OVERVIEW -------------------------------------------------------- */
+function renderOverview(products, tx, settings){
+  if(products.length === 0){
+    document.getElementById('ccvBig').textContent = '—';
+    document.getElementById('flowFill').style.width = '0%';
+    document.getElementById('flowCaption').textContent = 'Add your first SKU to start tracking capital flow';
+    document.getElementById('kpiGrid').innerHTML = emptyKpiCards();
+    document.getElementById('alertCount').textContent = '0 alerts';
+    document.getElementById('alertList').innerHTML = `<div class="empty-state">No products yet. <a href="#settings" onclick="navigate('settings')" style="color:var(--teal);font-weight:600;">Add a SKU in Settings</a> or load the sample dataset to explore the console.</div>`;
+    if(savingsChartInst){ savingsChartInst.destroy(); savingsChartInst = null; }
+    document.getElementById('recentTxBody').innerHTML = `<tr><td colspan="6" class="empty-state">No transactions logged yet.</td></tr>`;
+    return;
+  }
+
+  const dsi = Calc.dsi(products);
+  const ccv = Calc.cashConversionVelocity(products);
+  const savings = Calc.workingCapitalSavings(products, settings);
+  const dailyRelease = Calc.dailyCashRelease(products);
+  const invValue = products.reduce((s,p)=>s+Calc.inventoryValue(p),0);
+
+  // Capital flow meter
+  document.getElementById('ccvBig').textContent = fmtNum(ccv,1) + ' turns/yr';
+  const flowPct = Math.min(100, Math.max(8, (ccv/12)*100)); // visual scale, 12 turns/yr = full bar
+  document.getElementById('flowFill').style.width = flowPct + '%';
+  document.getElementById('flowCaption').textContent = fmtMoney(dailyRelease) + '/day cycling out of ' + fmtMoney(invValue) + ' in stock';
+
+  // KPI cards
+  const alerts = buildAlerts(products, settings);
+  const critical = alerts.filter(a=>a.severity==='critical').length;
+  const kpis = [
+    { label:'Days Sales of Inventory', value: fmtNum(dsi,1), unit:'days', accent:'teal',
+      sub: dsi < 45 ? '<span class="kpi-delta-up">Healthy</span> — capital cycling quickly' : '<span class="kpi-delta-down">Elevated</span> — capital sitting on shelves' },
+    { label:'Cash Conversion Velocity', value: fmtNum(ccv,1), unit:'turns/yr', accent:'blue',
+      sub: 'Higher = capital cycles back to cash faster' },
+    { label:'Working Capital Released', value: fmtMoney(savings), unit:'', accent:'green',
+      sub: 'vs. legacy ' + Math.round(settings.legacyBufferPct*100) + '% flat buffer policy' },
+    { label:'Critical Restock Alerts', value: critical, unit:'SKUs', accent: critical>0 ? 'amber':'teal',
+      sub: critical>0 ? '<span class="kpi-delta-down">Action needed</span> below reorder point' : '<span class="kpi-delta-up">All clear</span>' },
+  ];
+  const grid = document.getElementById('kpiGrid');
+  grid.innerHTML = kpis.map(k=>`
+    <div class="kpi-card kpi-accent-${k.accent}">
+      <div class="kpi-label">${k.label}</div>
+      <div class="kpi-value">${k.value}<span class="kpi-unit">${k.unit}</span></div>
+      <div class="kpi-sub">${k.sub}</div>
+    </div>`).join('');
+
+  // Alerts list
+  const alertList = document.getElementById('alertList');
+  document.getElementById('alertCount').textContent = alerts.length + ' alert' + (alerts.length===1?'':'s');
+  if(alerts.length===0){
+    alertList.innerHTML = `<div class="empty-state">No SKUs below reorder point. Inventory buffers are holding.</div>`;
+  } else {
+    alertList.innerHTML = alerts.slice(0,8).map(a=>`
+      <div class="alert-row sev-${a.severity}">
+        <div class="alert-icon">${a.severity==='critical' ? '⛔' : '⚠️'}</div>
+        <div class="alert-body">
+          <div class="alert-title">${a.product.name} <span class="small-muted mono">(${a.product.sku})</span></div>
+          <div class="alert-meta">On hand ${fmtNum(a.product.onHand)} / ROP ${fmtNum(a.rop,0)} · ${fmtNum(a.daysCover,1)} days cover left</div>
+        </div>
+        <div class="alert-pill">${a.severity==='critical' ? 'REORDER NOW' : 'WATCH'}</div>
+      </div>`).join('');
+  }
+
+  // Savings chart: legacy vs optimized safety-stock capital, by category
+  const byCat = {};
+  products.forEach(p=>{
+    const legacyVal = Calc.legacySafetyStock(p,settings)*p.unitCost;
+    const optVal = Calc.safetyStock(p,settings)*p.unitCost;
+    byCat[p.category] = byCat[p.category] || {legacy:0, opt:0};
+    byCat[p.category].legacy += legacyVal;
+    byCat[p.category].opt += optVal;
+  });
+  const cats = Object.keys(byCat);
+  const ctx = document.getElementById('savingsChart');
+  if(savingsChartInst) savingsChartInst.destroy();
+  savingsChartInst = new Chart(ctx, {
+    type:'bar',
+    data:{
+      labels:cats,
+      datasets:[
+        {label:'Legacy buffer capital', data:cats.map(c=>Math.round(byCat[c].legacy)), backgroundColor:'#5c6b7f'},
+        {label:'Optimized safety stock', data:cats.map(c=>Math.round(byCat[c].opt)), backgroundColor:'#2dd4bf'},
+      ]
+    },
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      plugins:{ legend:{ labels:{color:'#8a97a8', font:{size:10.5}}, position:'bottom' } },
+      scales:{
+        x:{ ticks:{color:'#8a97a8', font:{size:10}}, grid:{color:'#1a2230'} },
+        y:{ ticks:{color:'#8a97a8', font:{size:10}}, grid:{color:'#1a2230'} }
+      }
+    }
+  });
+
+  // Recent movements (last 6)
+  const recent = [...tx].sort((a,b)=> b.date.localeCompare(a.date)).slice(0,6);
+  document.getElementById('recentTxBody').innerHTML = recent.map(t=>txRow(t, products)).join('') ||
+    `<tr><td colspan="6" class="empty-state">No transactions logged yet.</td></tr>`;
+}
+
+function emptyKpiCards(){
+  const labels = ['Days Sales of Inventory','Cash Conversion Velocity','Working Capital Released','Critical Restock Alerts'];
+  return labels.map(l=>`
+    <div class="kpi-card">
+      <div class="kpi-label">${l}</div>
+      <div class="kpi-value" style="color:var(--muted-2);">—</div>
+      <div class="kpi-sub">Waiting on catalog data</div>
+    </div>`).join('');
+}
+
+function buildAlerts(products, settings){
+  return products
+    .map(p=>{
+      const rop = Calc.reorderPoint(p, settings);
+      const daysCover = Calc.daysOfCover(p);
+      const isAlert = p.onHand <= rop;
+      const severity = p.onHand <= rop*0.5 ? 'critical' : 'warn';
+      return { product:p, rop, daysCover, isAlert, severity };
+    })
+    .filter(a=>a.isAlert)
+    .sort((a,b)=> a.daysCover - b.daysCover);
+}
+
+function txRow(t, products){
+  const p = findProduct(products, t.sku) || {name:t.sku, sku:t.sku};
+  const value = t.qty * (t.unitVal||0);
+  const typeColor = t.type==='purchase' ? 'var(--blue)' : t.type==='sale' ? 'var(--green)' : 'var(--amber)';
+  return `<tr>
+    <td class="mono">${t.date}</td>
+    <td><span class="status-dot" style="background:${typeColor}"></span>${cap(t.type)}</td>
+    <td class="mono">${t.sku}</td>
+    <td>${p.name||''}</td>
+    <td class="num mono">${t.type==='sale' ? '-' : '+'}${fmtNum(t.qty)}</td>
+    <td class="num mono">${fmtMoney(value)}</td>
+  </tr>`;
+}
+function cap(s){ return s.charAt(0).toUpperCase()+s.slice(1); }
+
+/* ---- INVENTORY / ABC-XYZ ---------------------------------------------- */
+function renderInventory(products, settings){
+  if(products.length === 0){
+    document.getElementById('matrixGrid').innerHTML = `<div class="empty-state" style="grid-column:1/-1;">No SKUs in the catalog yet. Add products in Settings to populate the ABC-XYZ matrix.</div>`;
+    document.getElementById('inventoryTableBody').innerHTML = `<tr><td colspan="10" class="empty-state">No products yet.</td></tr>`;
+    return;
+  }
+  const abc = Calc.abcClassify(products);
+
+  // Matrix grid: build 3x3 (ABC rows x XYZ cols) with chips
+  const rows = ['A','B','C'];
+  const cols = ['X','Y','Z'];
+  let html = `<div class="corner"></div>`;
+  cols.forEach(c=> html += `<div class="col-label">${c}<br><span style="font-weight:400;text-transform:none;">${c==='X'?'stable':c==='Y'?'variable':'erratic'}</span></div>`);
+  rows.forEach(r=>{
+    html += `<div class="row-label">${r}</div>`;
+    cols.forEach(c=>{
+      const items = products.filter(p=> abc[p.id]===r && Calc.xyzClass(p)===c);
+      const cellClass = (r==='A'&&c==='X') ? 'mcell-AX' : (r==='C'&&c==='Z') ? 'mcell-CZ' : '';
+      html += `<div class="matrix-cell ${cellClass}">
+        <div class="cell-tag">${r}${c} · ${items.length} SKU${items.length===1?'':'s'}</div>
+        ${items.length? items.map(p=>`
+          <div class="matrix-chip">
+            <span class="sku-name">${p.sku}</span>
+            <span class="sku-rev">${fmtMoney(Calc.annualRevenue(p))}/yr</span>
+          </div>`).join('') : '<div class="small-muted">—</div>'}
+      </div>`;
+    });
+  });
+  document.getElementById('matrixGrid').innerHTML = html;
+
+  // Reorder point / EOQ table
+  const body = document.getElementById('inventoryTableBody');
+  const rowsHtml = products.map(p=>{
+    const ss = Calc.safetyStock(p, settings);
+    const rop = Calc.reorderPoint(p, settings);
+    const eoq = Calc.eoq(p, settings);
+    const cover = Calc.daysOfCover(p);
+    const klass = abc[p.id];
+    const xyz = Calc.xyzClass(p);
+    const below = p.onHand <= rop;
+    const statusHtml = below
+      ? `<span class="tag tag-Z">Reorder</span>`
+      : `<span class="tag tag-X">OK</span>`;
+    return `<tr>
+      <td class="mono">${p.sku}</td>
+      <td>${p.name}</td>
+      <td><span class="tag tag-${klass}">${klass}</span> <span class="tag tag-${xyz}">${xyz}</span></td>
+      <td class="num mono">${fmtNum(p.onHand)}</td>
+      <td class="num mono">${fmtNum(p.avgDailyDemand,1)}</td>
+      <td class="num mono">${fmtNum(ss,1)}</td>
+      <td class="num mono">${fmtNum(rop,1)}</td>
+      <td class="num mono">${fmtNum(eoq,0)}</td>
+      <td class="num mono">${cover===Infinity?'∞':fmtNum(cover,1)}</td>
+      <td>${statusHtml}</td>
+    </tr>`;
+  }).join('');
+  body.innerHTML = rowsHtml;
+}
+
+/* ---- FORECASTING -------------------------------------------------------- */
+function renderForecasting(products, settings){
+  const holder = document.querySelector('#view-forecasting .chart-holder');
+  const tabWrap = document.getElementById('forecastSkuTabs');
+
+  if(products.length === 0){
+    tabWrap.innerHTML = '';
+    document.getElementById('forecastTotalDemand').textContent = '—';
+    document.getElementById('forecastRecommend').textContent = '—';
+    if(forecastChartInst){ forecastChartInst.destroy(); forecastChartInst = null; }
+    holder.innerHTML = `<div class="empty-state" style="padding-top:60px;">No SKUs to forecast yet. Add a product in Settings — or load the sample dataset — to see a demand projection here.</div>`;
+    return;
+  }
+  // Ensure the canvas exists (it may have been swapped out by the empty state above)
+  if(!document.getElementById('forecastChart')){
+    holder.innerHTML = '<canvas id="forecastChart"></canvas>';
+  }
+
+  // SKU tabs
+  if(!forecastSelectedSku || !findProduct(products, forecastSelectedSku)){
+    forecastSelectedSku = products[0].sku;
+  }
+  tabWrap.innerHTML = products.map(p=>`<div class="tab-mini ${p.sku===forecastSelectedSku?'active':''}" data-sku="${p.sku}">${p.sku}</div>`).join('');
+  tabWrap.querySelectorAll('.tab-mini').forEach(el=>{
+    el.addEventListener('click', ()=>{ forecastSelectedSku = el.dataset.sku; renderForecasting(Store.getProducts(), Store.getSettings()); });
+  });
+
+  const p = findProduct(products, forecastSelectedSku);
+  const horizon = Number(document.getElementById('forecastHorizon').value || 60);
+
+  const { histLabels, histData, fLabels, fMean, fLow, fHigh } = generateForecast(p, horizon);
+
+  const totalDemand = fMean.reduce((a,b)=>a+b,0);
+  document.getElementById('forecastTotalDemand').textContent = fmtNum(totalDemand,0) + ' units';
+  const recommend = Math.max(0, Math.round(totalDemand + Calc.safetyStock(p,settings) - p.onHand));
+  document.getElementById('forecastRecommend').textContent = fmtNum(recommend,0) + ' units';
+
+  const ctx = document.getElementById('forecastChart');
+  if(forecastChartInst) forecastChartInst.destroy();
+  const labels = [...histLabels, ...fLabels];
+  const histSeries = [...histData, ...Array(fLabels.length).fill(null)];
+  const meanSeries = [...Array(histLabels.length).fill(null), ...fMean];
+  const lowSeries  = [...Array(histLabels.length).fill(null), ...fLow];
+  const highSeries = [...Array(histLabels.length).fill(null), ...fHigh];
+
+  forecastChartInst = new Chart(ctx, {
+    type:'line',
+    data:{
+      labels,
+      datasets:[
+        { label:'Confidence band (high)', data:highSeries, borderWidth:0, pointRadius:0, backgroundColor:'rgba(245,166,35,.18)', fill:'+1' },
+        { label:'Confidence band (low)', data:lowSeries, borderWidth:0, pointRadius:0, backgroundColor:'rgba(245,166,35,.18)', fill:false },
+        { label:'Forecast (mean)', data:meanSeries, borderColor:'#f5a623', borderDash:[5,4], pointRadius:0, tension:.3, borderWidth:2 },
+        { label:'Historical demand', data:histSeries, borderColor:'#5b9cf5', pointRadius:0, tension:.3, borderWidth:2 },
+      ]
+    },
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      interaction:{ mode:'index', intersect:false },
+      plugins:{ legend:{ display:false } },
+      scales:{
+        x:{ ticks:{color:'#8a97a8', font:{size:9}, maxTicksLimit:12}, grid:{color:'#1a2230'} },
+        y:{ ticks:{color:'#8a97a8', font:{size:10}}, grid:{color:'#1a2230'}, title:{display:true,text:'Units/day',color:'#8a97a8',font:{size:10}} }
+      }
+    }
+  });
+}
+
+/** Generates a mock 60-day history + forward forecast for a product,
+ *  approximating what a Prophet/ARIMA decomposition would output:
+ *  trend + weekly seasonality + noise, with a widening confidence
+ *  interval as the horizon extends (reflecting growing forecast
+ *  uncertainty over time). */
+function generateForecast(p, horizonDays){
+  const histDays = 60;
+  const base = p.avgDailyDemand;
+  const noiseScale = p.demandStdDev;
+  // deterministic pseudo-random so the chart doesn't jitter on every render
+  const rng = mulberry32(hashCode(p.sku));
+
+  const histLabels = [], histData = [];
+  const today = new Date();
+  for(let i=histDays; i>0; i--){
+    const d = new Date(today); d.setDate(d.getDate()-i);
+    const weekday = d.getDay();
+    const seasonal = (weekday===0||weekday===6) ? -0.25*base : 0.08*base; // weekend dip
+    const trend = base * 0.002 * (histDays - i); // mild upward trend
+    const noise = (rng()-0.5) * noiseScale * 1.6;
+    const val = Math.max(0, base + seasonal + trend + noise);
+    histLabels.push(fmtDateShort(d));
+    histData.push(Math.round(val*10)/10);
+  }
+
+  const fLabels=[], fMean=[], fLow=[], fHigh=[];
+  const lastTrend = base * 0.002 * histDays;
+  for(let i=1;i<=horizonDays;i++){
+    const d = new Date(today); d.setDate(d.getDate()+i);
+    const weekday = d.getDay();
+    const seasonal = (weekday===0||weekday===6) ? -0.25*base : 0.08*base;
+    const trend = base*0.0015*i; // continued gentle growth
+    const mean = Math.max(0, base + seasonal + trend);
+    // widening uncertainty band proportional to sqrt(horizon) — mirrors
+    // how forecast confidence intervals grow with forecast distance.
+    const band = noiseScale * Math.sqrt(i) * 0.9;
+    fLabels.push(fmtDateShort(d));
+    fMean.push(Math.round(mean*10)/10);
+    fLow.push(Math.round(Math.max(0,mean-band)*10)/10);
+    fHigh.push(Math.round((mean+band)*10)/10);
+  }
+  return { histLabels, histData, fLabels, fMean, fLow, fHigh };
+}
+function fmtDateShort(d){ return (d.getMonth()+1)+'/'+d.getDate(); }
+function hashCode(str){ let h=0; for(let i=0;i<str.length;i++){ h=(h<<5)-h+str.charCodeAt(i); h|=0; } return Math.abs(h)||1; }
+function mulberry32(seed){
+  return function(){
+    seed |= 0; seed = seed + 0x6D2B79F5 | 0;
+    let t = Math.imul(seed ^ seed >>> 15, 1 | seed);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+
+/* ---- DATA OPS -------------------------------------------------------- */
+function renderDataOps(products, tx){
+  const banner = document.getElementById('dataOpsEmptyBanner');
+  if(products.length === 0){
+    if(!banner){
+      const b = document.createElement('div');
+      b.id = 'dataOpsEmptyBanner';
+      b.className = 'panel';
+      b.style.marginBottom = '16px';
+      b.innerHTML = `<div class="empty-state">Forms are disabled until your catalog has at least one SKU. <a href="#settings" onclick="navigate('settings')" style="color:var(--teal);font-weight:600;">Add a product in Settings</a> or load the sample dataset.</div>`;
+      document.getElementById('view-dataops').prepend(b);
+    }
+  } else if(banner){
+    banner.remove();
+  }
+
+  const body = document.getElementById('txTableBody');
+  const sorted = [...tx].sort((a,b)=> b.date.localeCompare(a.date));
+  body.innerHTML = sorted.map(t=>{
+    const p = findProduct(products, t.sku) || {name:t.sku};
+    const value = t.qty*(t.unitVal||0);
+    const typeColor = t.type==='purchase' ? 'var(--blue)' : t.type==='sale' ? 'var(--green)' : 'var(--amber)';
+    return `<tr>
+      <td class="mono">${t.date}</td>
+      <td><span class="status-dot" style="background:${typeColor}"></span>${cap(t.type)}</td>
+      <td class="mono">${t.sku}</td>
+      <td>${p.name}</td>
+      <td class="num mono">${fmtNum(t.qty)}</td>
+      <td class="num mono">${fmtMoney(t.unitVal||0)}</td>
+      <td class="num mono">${fmtMoney(value)}</td>
+      <td><button class="btn btn-sm btn-danger" data-txid="${t.id}">Delete</button></td>
+    </tr>`;
+  }).join('') || `<tr><td colspan="8" class="empty-state">No transactions yet — log one above.</td></tr>`;
+
+  body.querySelectorAll('button[data-txid]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      // Deleting a transaction reverses its stock effect to keep onHand consistent.
+      const id = btn.dataset.txid;
+      const allTx = Store.getTx();
+      const target = allTx.find(t=>t.id===id);
+      if(target){
+        const prods = Store.getProducts();
+        const p = findProduct(prods, target.sku);
+        if(p){
+          if(target.type==='purchase') p.onHand = Math.max(0,p.onHand-target.qty);
+          if(target.type==='sale')     p.onHand += target.qty;
+          if(target.type==='return')   p.onHand = Math.max(0,p.onHand-target.qty);
+        }
+        Store.setProducts(prods);
+      }
+      Store.setTx(allTx.filter(t=>t.id!==id));
+      showToast('Transaction removed');
+      renderAll();
+    });
+  });
+}
+
+function populateSkuSelects(products){
+  document.querySelectorAll('select.sel-sku').forEach(sel=>{
+    const current = sel.value;
+    if(products.length === 0){
+      sel.innerHTML = `<option value="" disabled selected>No SKUs — add one in Settings</option>`;
+    } else {
+      sel.innerHTML = products.map(p=>`<option value="${p.sku}">${p.sku} — ${p.name}</option>`).join('');
+      if(current) sel.value = current;
+    }
+  });
+  // Disable the purchase/sale/return forms entirely until a catalog exists.
+  ['formPurchase','formSale','formReturn'].forEach(id=>{
+    const form = document.getElementById(id);
+    form.querySelectorAll('input, select, button[type=submit]').forEach(el=> el.disabled = products.length === 0);
+  });
+}
+
+/* ---- CATALOG EDITOR (Settings) ------------------------------------------
+   Renders every product as an editable row. Fields are plain inputs bound
+   via data-field; Save reads the row back into the product object and
+   persists it, Delete removes the SKU and cascades to its transactions. */
+const CATEGORY_OPTIONS = ['UPS Systems','Laptops','CCTV','Networking','Accessories'];
+
+/** Returns every category currently in use, plus the default set — so any
+ *  custom category a user has already typed in shows up as a normal
+ *  option next time, rather than forcing them through "Others" again. */
+function getAllCategories(products){
+  const set = new Set(CATEGORY_OPTIONS);
+  (products||[]).forEach(p=>{ if(p.category) set.add(p.category); });
+  return Array.from(set);
+}
+
+/** Keeps the "Add New SKU" category dropdown in sync with whatever
+ *  categories exist right now (defaults + any custom ones added so far). */
+function populateCategorySelects(products){
+  const sel = document.getElementById('newSkuCategory');
+  if(!sel) return;
+  const current = sel.value;
+  const cats = getAllCategories(products);
+  sel.innerHTML = cats.map(c=>`<option value="${escapeAttr(c)}">${c}</option>`).join('')
+    + `<option value="__other__">Others</option>`;
+  if(current && cats.includes(current)) sel.value = current;
+}
+
+function renderCatalogEditor(products){
+  const body = document.getElementById('catalogTableBody');
+  if(products.length === 0){
+    body.innerHTML = `<tr><td colspan="10" class="empty-state">No SKUs yet — add your first one below, or click "Load sample data" in the top bar.</td></tr>`;
+    return;
+  }
+  const cats = getAllCategories(products);
+  body.innerHTML = products.map(p=>`
+    <tr data-id="${p.id}">
+      <td class="mono">${p.sku}</td>
+      <td><input type="text" data-field="name" value="${escapeAttr(p.name)}"></td>
+      <td>
+        <select data-field="category">${cats.map(c=>`<option value="${escapeAttr(c)}" ${c===p.category?'selected':''}>${c}</option>`).join('')}<option value="__other__">Others</option></select>
+        <input type="text" data-field="categoryCustom" class="cat-custom-input hidden" placeholder="Type new category name">
+      </td>
+      <td><input type="number" data-field="unitCost" value="${p.unitCost}" min="0" step="0.01"></td>
+      <td><input type="number" data-field="unitPrice" value="${p.unitPrice}" min="0" step="0.01"></td>
+      <td><input type="number" data-field="onHand" value="${p.onHand}" min="0"></td>
+      <td><input type="number" data-field="avgDailyDemand" value="${p.avgDailyDemand}" min="0.1" step="0.1"></td>
+      <td><input type="number" data-field="demandStdDev" value="${p.demandStdDev}" min="0" step="0.1"></td>
+      <td><input type="number" data-field="leadTimeDays" value="${p.leadTimeDays}" min="1"></td>
+      <td>
+        <div class="row-actions">
+          <button class="btn btn-sm btn-primary" data-action="save">Save</button>
+          <button class="btn btn-sm btn-danger" data-action="delete">Delete</button>
+        </div>
+      </td>
+    </tr>`).join('');
+}
+function escapeAttr(s){ return String(s).replace(/"/g,'&quot;'); }
+
+/* ---- SETTINGS ---------------------------------------------------------- */
+function syncSettingsForm(settings){
+  document.getElementById('setServiceLevel').value = settings.serviceLevelZ;
+  document.getElementById('setBufferPct').value = Math.round(settings.legacyBufferPct*100);
+  document.getElementById('setBufferPctLabel').textContent = Math.round(settings.legacyBufferPct*100)+'% of lead-time demand';
+  document.getElementById('setHoldingCost').value = Math.round(settings.holdingCostPct*100);
+  document.getElementById('setHoldingCostLabel').textContent = Math.round(settings.holdingCostPct*100)+'% / year';
+  document.getElementById('setOrderingCost').value = settings.orderingCost;
+  document.getElementById('setCurrency').value = settings.currency;
+}
+
+/* --------------------------------------------------------------------------
+   9. EVENT WIRING
+-------------------------------------------------------------------------- */
+function wireForms(){
+  document.getElementById('formPurchase').addEventListener('submit', e=>{
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const products = Store.getProducts();
+    const p = findProduct(products, fd.get('sku'));
+    if(!p) return;
+    const qty = Number(fd.get('qty'));
+    const cost = fd.get('cost') ? Number(fd.get('cost')) : p.unitCost;
+    if(fd.get('cost')) p.unitCost = cost;
+    p.onHand += qty;
+    Store.setProducts(products);
+    const tx = Store.getTx();
+    tx.push({ id:tid(), date:fd.get('date'), type:'purchase', sku:p.sku, qty, unitVal:cost });
+    Store.setTx(tx);
+    e.target.reset();
+    showToast(`Logged purchase: +${qty} × ${p.sku}`);
+    renderAll();
+  });
+
+  document.getElementById('formSale').addEventListener('submit', e=>{
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const products = Store.getProducts();
+    const p = findProduct(products, fd.get('sku'));
+    if(!p) return;
+    const qty = Number(fd.get('qty'));
+    const price = fd.get('price') ? Number(fd.get('price')) : p.unitPrice;
+    if(fd.get('price')) p.unitPrice = price;
+    p.onHand = Math.max(0, p.onHand - qty);
+    Store.setProducts(products);
+    const tx = Store.getTx();
+    tx.push({ id:tid(), date:fd.get('date'), type:'sale', sku:p.sku, qty, unitVal:price });
+    Store.setTx(tx);
+    e.target.reset();
+    showToast(`Logged sale: -${qty} × ${p.sku}`);
+    renderAll();
+  });
+
+  document.getElementById('formReturn').addEventListener('submit', e=>{
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const products = Store.getProducts();
+    const p = findProduct(products, fd.get('sku'));
+    if(!p) return;
+    const qty = Number(fd.get('qty'));
+    p.onHand += qty;
+    Store.setProducts(products);
+    const tx = Store.getTx();
+    tx.push({ id:tid(), date:fd.get('date'), type:'return', sku:p.sku, qty, unitVal:p.unitPrice, reason:fd.get('reason') });
+    Store.setTx(tx);
+    e.target.reset();
+    showToast(`Logged return: +${qty} × ${p.sku}`);
+    renderAll();
+  });
+
+  document.getElementById('formNewSku').addEventListener('submit', e=>{
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const products = Store.getProducts();
+    const sku = fd.get('sku').trim();
+    if(findProduct(products, sku)){ showToast('SKU already exists'); return; }
+    let category = fd.get('category');
+    if(category === '__other__'){
+      category = document.getElementById('newSkuCustomCategory').value.trim() || 'Others';
+    }
+    products.push({
+      id:'p_'+Math.random().toString(36).slice(2,8),
+      sku, name:fd.get('name'), category,
+      unitCost:Number(fd.get('unitCost')), unitPrice:Number(fd.get('unitPrice')),
+      onHand:Number(fd.get('onHand')), avgDailyDemand:Number(fd.get('avgDailyDemand')),
+      demandStdDev:Number(fd.get('demandStdDev')), leadTimeDays:Number(fd.get('leadTimeDays')),
+    });
+    Store.setProducts(products);
+    e.target.reset();
+    document.getElementById('newSkuCustomCategoryField').classList.add('hidden');
+    showToast(`Added new SKU: ${sku}`);
+    renderAll();
+  });
+
+  // Show/hide the "type a new category" field on the Add New SKU form.
+  document.getElementById('newSkuCategory').addEventListener('change', e=>{
+    document.getElementById('newSkuCustomCategoryField').classList.toggle('hidden', e.target.value !== '__other__');
+  });
+
+  document.getElementById('btnSaveSettings').addEventListener('click', ()=>{
+    const settings = {
+      serviceLevelZ: Number(document.getElementById('setServiceLevel').value),
+      legacyBufferPct: Number(document.getElementById('setBufferPct').value)/100,
+      holdingCostPct: Number(document.getElementById('setHoldingCost').value)/100,
+      orderingCost: Number(document.getElementById('setOrderingCost').value),
+      currency: document.getElementById('setCurrency').value || '₹',
+    };
+    Store.setSettings(settings);
+    showToast('Settings saved — dashboard recalculated');
+    renderAll();
+  });
+
+  document.getElementById('setBufferPct').addEventListener('input', e=>{
+    document.getElementById('setBufferPctLabel').textContent = e.target.value+'% of lead-time demand';
+  });
+  document.getElementById('setHoldingCost').addEventListener('input', e=>{
+    document.getElementById('setHoldingCostLabel').textContent = e.target.value+'% / year';
+  });
+
+  document.getElementById('forecastHorizon').addEventListener('change', ()=> renderForecasting(Store.getProducts(), Store.getSettings()));
+
+  document.getElementById('btnClearTx').addEventListener('click', ()=>{
+    if(confirm('Clear all transaction history? Stock levels stay as-is; only the ledger is wiped.')){
+      Store.setTx([]);
+      showToast('Transaction history cleared');
+      renderAll();
+    }
+  });
+
+  document.getElementById('btnResetData').addEventListener('click', ()=>{
+    if(confirm('Clear ALL data — every SKU, transaction and setting? This cannot be undone.')){
+      Store.resetAll();
+      showToast('All data cleared');
+      renderAll();
+    }
+  });
+
+  document.getElementById('btnLoadSample').addEventListener('click', ()=>{
+    const products = Store.getProducts();
+    const proceed = products.length === 0
+      ? true
+      : confirm('This will replace your current catalog and transactions with sample data. Continue?');
+    if(!proceed) return;
+    Store.loadSample();
+    showToast('Sample dataset loaded');
+    renderAll();
+  });
+
+  document.getElementById('btnExportExcel').addEventListener('click', exportExcel);
+  document.getElementById('btnExportPDF').addEventListener('click', exportPDF);
+
+  // Catalog editor: delegated Save / Delete handling (rows are re-rendered
+  // on every update, so we bind once on the static tbody container).
+  document.getElementById('catalogTableBody').addEventListener('click', e=>{
+    const btn = e.target.closest('button[data-action]');
+    if(!btn) return;
+    const tr = btn.closest('tr');
+    const id = tr.dataset.id;
+    const products = Store.getProducts();
+    const p = products.find(x=>x.id===id);
+    if(!p) return;
+
+    if(btn.dataset.action === 'save'){
+      tr.querySelectorAll('[data-field]').forEach(inp=>{
+        const field = inp.dataset.field;
+        if(field === 'categoryCustom') return; // resolved together with category below
+        let val = inp.type === 'number' ? Number(inp.value) : inp.value;
+        if(field === 'category' && val === '__other__'){
+          const customInp = tr.querySelector('[data-field="categoryCustom"]');
+          val = (customInp && customInp.value.trim()) || 'Others';
+        }
+        p[field] = val;
+      });
+      Store.setProducts(products);
+      showToast(`Saved ${p.sku}`);
+      renderAll();
+    }
+
+    if(btn.dataset.action === 'delete'){
+      if(confirm(`Delete ${p.sku} — ${p.name}? Its transaction history will be removed too. This can't be undone.`)){
+        Store.setProducts(products.filter(x=>x.id!==id));
+        Store.setTx(Store.getTx().filter(t=>t.sku!==p.sku));
+        showToast(`Deleted ${p.sku}`);
+        renderAll();
+      }
+    }
+  });
+
+  // Toggle the inline "type a new category" input whenever a row's
+  // category dropdown is switched to Others (and back).
+  document.getElementById('catalogTableBody').addEventListener('change', e=>{
+    const sel = e.target.closest('select[data-field="category"]');
+    if(!sel) return;
+    const tr = sel.closest('tr');
+    const customInp = tr.querySelector('[data-field="categoryCustom"]');
+    if(customInp){
+      const isOther = sel.value === '__other__';
+      customInp.classList.toggle('hidden', !isOther);
+      if(isOther) customInp.focus();
+    }
+  });
+}
+
+/* --------------------------------------------------------------------------
+   10. EXPORTS
+-------------------------------------------------------------------------- */
+function exportExcel(){
+  const products = Store.getProducts();
+  const settings = Store.getSettings();
+  const abc = Calc.abcClassify(products);
+
+  const rows = products.map(p=>({
+    SKU:p.sku, Product:p.name, Category:p.category,
+    ABC:abc[p.id], XYZ:Calc.xyzClass(p),
+    OnHand:p.onHand, AvgDailyDemand:p.avgDailyDemand,
+    SafetyStock:Math.round(Calc.safetyStock(p,settings)*10)/10,
+    ReorderPoint:Math.round(Calc.reorderPoint(p,settings)*10)/10,
+    EOQ:Math.round(Calc.eoq(p,settings)),
+    DaysOfCover:Math.round(Calc.daysOfCover(p)*10)/10,
+    UnitCost:p.unitCost, UnitPrice:p.unitPrice,
+    InventoryValue:Math.round(Calc.inventoryValue(p)),
+    AnnualRevenue:Math.round(Calc.annualRevenue(p)),
+  }));
+
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.json_to_sheet(rows);
+  XLSX.utils.book_append_sheet(wb, ws, 'Inventory Analytics');
+
+  const tx = Store.getTx();
+  const wsTx = XLSX.utils.json_to_sheet(tx.map(t=>({Date:t.date, Type:t.type, SKU:t.sku, Qty:t.qty, UnitValue:t.unitVal})));
+  XLSX.utils.book_append_sheet(wb, wsTx, 'Transactions');
+
+  XLSX.writeFile(wb, 'flowdesk_inventory_export.xlsx');
+  showToast('Excel file exported');
+}
+
+function exportPDF(){
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF();
+  const products = Store.getProducts();
+  const settings = Store.getSettings();
+  const dsi = Calc.dsi(products);
+  const ccv = Calc.cashConversionVelocity(products);
+  const savings = Calc.workingCapitalSavings(products, settings);
+  const alerts = buildAlerts(products, settings);
+
+  doc.setFontSize(16); doc.text('FlowDesk — Working Capital & Inventory Report', 14, 18);
+  doc.setFontSize(10); doc.setTextColor(120);
+  doc.text('Generated ' + new Date().toLocaleString(), 14, 25);
+
+  doc.setTextColor(20); doc.setFontSize(12);
+  doc.text('Key Metrics', 14, 38);
+  doc.setFontSize(10);
+  const lines = [
+    `Days Sales of Inventory (DSI): ${dsi.toFixed(1)} days`,
+    `Cash Conversion Velocity: ${ccv.toFixed(1)} turns/year`,
+    `Working Capital Released: ${settings.currency}${Math.round(savings).toLocaleString()}`,
+    `Critical Restock Alerts: ${alerts.length} SKUs at or below reorder point`,
+  ];
+  lines.forEach((l,i)=> doc.text(l, 14, 46 + i*7));
+
+  doc.setFontSize(12); doc.text('Critical Restock Alerts', 14, 80);
+  doc.setFontSize(9);
+  let y = 88;
+  doc.setTextColor(120);
+  doc.text('SKU', 14, y); doc.text('Product', 40, y); doc.text('On hand', 120, y); doc.text('ROP', 145, y); doc.text('Days cover', 170, y);
+  y += 5; doc.setTextColor(20);
+  if(alerts.length===0){
+    doc.text('No SKUs currently below reorder point.', 14, y); y+=7;
+  } else {
+    alerts.slice(0,20).forEach(a=>{
+      if(y > 275){ doc.addPage(); y = 20; }
+      doc.text(a.product.sku, 14, y);
+      doc.text(a.product.name.slice(0,32), 40, y);
+      doc.text(String(a.product.onHand), 120, y);
+      doc.text(a.rop.toFixed(0), 145, y);
+      doc.text(a.daysCover===Infinity?'∞':a.daysCover.toFixed(1), 170, y);
+      y += 6;
+    });
+  }
+
+  doc.setFontSize(12); doc.setTextColor(20);
+  y += 8; if(y>270){doc.addPage(); y=20;}
+  doc.text('Reorder Point & EOQ Summary', 14, y); y+=8;
+  doc.setFontSize(9); doc.setTextColor(120);
+  doc.text('SKU', 14, y); doc.text('On hand', 60, y); doc.text('Safety stock', 90, y); doc.text('ROP', 130, y); doc.text('EOQ', 155, y);
+  y += 5; doc.setTextColor(20);
+  products.forEach(p=>{
+    if(y > 275){ doc.addPage(); y = 20; }
+    doc.text(p.sku, 14, y);
+    doc.text(String(p.onHand), 60, y);
+    doc.text(Calc.safetyStock(p,settings).toFixed(1), 90, y);
+    doc.text(Calc.reorderPoint(p,settings).toFixed(1), 130, y);
+    doc.text(Calc.eoq(p,settings).toFixed(0), 155, y);
+    y += 6;
+  });
+
+  doc.save('flowdesk_report.pdf');
+  showToast('PDF report exported');
+}
+
+/* --------------------------------------------------------------------------
+   12. ASSISTANT CHAT WIDGET
+   A scripted, jargon-light guided flow — runs entirely client-side, no
+   external API calls. Its main job is walking a non-technical client
+   through adding a new product one plain-English question at a time,
+   with sensible skip-with-default options for the more technical fields.
+-------------------------------------------------------------------------- */
+const PRODUCT_WIZARD_FIELDS = [
+  { key:'sku', label:'What SKU / product code should I use?', hint:'A short code to identify this product, e.g. CCTV-104', type:'text' },
+  { key:'name', label:'What\'s the product called?', hint:'e.g. 4-Channel NVR Kit', type:'text' },
+  { key:'category', label:'Which category does it belong to?', type:'choice' /* options computed live from current catalog */ },
+  { key:'unitCost', label:'What do you pay per unit?', hint:'Your cost from the wholesaler, e.g. 3500', type:'number', min:0 },
+  { key:'unitPrice', label:'What do you sell it for?', hint:'Your retail price per unit, e.g. 5900', type:'number', min:0 },
+  { key:'onHand', label:'How many units do you currently have in stock?', hint:'Your current on-hand count, e.g. 25', type:'number', min:0 },
+  { key:'avgDailyDemand', label:'Roughly how many units sell per day on average?', hint:'A rough estimate is fine, e.g. 2', type:'number', min:0.1 },
+  { key:'demandStdDev', label:'How unpredictable is demand for this product?', hint:'0 = very steady, higher = swings a lot. Not sure? Skip it.', type:'number', min:0, skippable:true },
+  { key:'leadTimeDays', label:'How many days after ordering does new stock arrive?', hint:'Wholesaler lead time in days, e.g. 10', type:'number', min:1, default:10, skippable:true },
+];
+
+const Assistant = {
+  state:'idle',   // 'idle' | 'wizard'
+  step:0,
+  draft:{},
+  awaitingCustomCategory:false,
+
+  startWizard(){
+    this.state='wizard'; this.step=0; this.draft={}; this.awaitingCustomCategory=false;
+    addBot('Great — let\'s add a new product. You can type <strong>cancel</strong> any time to stop.');
+    this.askCurrentField();
+  },
+
+  askCurrentField(){
+    const f = PRODUCT_WIZARD_FIELDS[this.step];
+    if(!f){ this.showConfirmation(); return; }
+    let msg = `<strong>${f.label}</strong>`;
+    if(f.hint) msg += `<span class="msg-field">${f.hint}</span>`;
+    addBot(msg);
+    if(f.key === 'category'){
+      const cats = getAllCategories(Store.getProducts());
+      showQuickReplies([...cats.map(o=>({label:o, value:o})), { label:'Others', value:'__wizard_other__' }]);
+    } else if(f.type === 'choice'){
+      showQuickReplies(f.options.map(o=>({label:o, value:o})));
+    } else if(f.skippable){
+      showQuickReplies([{ label:`Skip${f.default?` — use ${f.default}`:' — estimate for me'}`, value:'__skip__' }]);
+    } else {
+      clearQuickReplies();
+    }
+  },
+
+  handleFieldAnswer(raw){
+    const f = PRODUCT_WIZARD_FIELDS[this.step];
+    let value;
+
+    if(this.awaitingCustomCategory){
+      const trimmed = String(raw).trim();
+      if(!trimmed){ addBot('I need at least a short name for the new category — try again.'); return; }
+      this.awaitingCustomCategory = false;
+      this.draft.category = trimmed;
+      this.step++;
+      this.askCurrentField();
+      return;
+    }
+
+    if(f.key === 'category' && raw === '__wizard_other__'){
+      this.awaitingCustomCategory = true;
+      addBot('What should the new category be called?');
+      clearQuickReplies();
+      return;
+    }
+
+    if(raw === '__skip__' && f.skippable){
+      value = f.key==='demandStdDev'
+        ? Math.max(0.1, Math.round((this.draft.avgDailyDemand||1)*0.3*10)/10)
+        : f.default;
+    } else if(f.type === 'number'){
+      const n = parseFloat(String(raw).replace(/[^0-9.\-]/g,''));
+      if(isNaN(n) || n < (f.min ?? 0)){
+        addBot(`That doesn't look like a valid number${f.min!=null?` (must be ${f.min} or more)`:''}. Give it another try — ${f.hint||''}`);
+        if(f.skippable) showQuickReplies([{ label:`Skip${f.default?` — use ${f.default}`:' — estimate for me'}`, value:'__skip__' }]);
+        return;
+      }
+      value = n;
+    } else if(f.key === 'category'){
+      const cats = getAllCategories(Store.getProducts());
+      if(!cats.includes(raw)){
+        addBot('Please pick one of the options below, or choose "Others" to type your own.');
+        this.askCurrentField();
+        return;
+      }
+      value = raw;
+    } else if(f.type === 'choice'){
+      if(!f.options.includes(raw)){
+        addBot('Please pick one of the options below.');
+        showQuickReplies(f.options.map(o=>({label:o, value:o})));
+        return;
+      }
+      value = raw;
+    } else { // text
+      const trimmed = String(raw).trim();
+      if(!trimmed){ addBot('I need at least a short answer here — give it another try.'); return; }
+      if(f.key === 'sku'){
+        const exists = Store.getProducts().some(p=>p.sku.toLowerCase()===trimmed.toLowerCase());
+        if(exists){ addBot(`"${trimmed}" is already used by another product — try a different SKU.`); return; }
+      }
+      value = trimmed;
+    }
+
+    this.draft[f.key] = value;
+    this.step++;
+    this.askCurrentField();
+  },
+
+  showConfirmation(){
+    const d = this.draft;
+    addBot(`Here's what I've got — look right?<span class="msg-field">
+      SKU: ${d.sku} · ${d.name} · ${d.category}<br>
+      Cost ${fmtMoney(d.unitCost)} → Price ${fmtMoney(d.unitPrice)}<br>
+      On hand: ${d.onHand} · Avg demand: ${d.avgDailyDemand}/day · Lead time: ${d.leadTimeDays}d
+    </span>`);
+    showQuickReplies([
+      { label:'✅ Save product', value:'__confirm_save__' },
+      { label:'✏️ Start over', value:'__restart__' },
+      { label:'✖ Cancel', value:'__cancel__' },
+    ]);
+  },
+
+  commit(){
+    const d = this.draft;
+    const products = Store.getProducts();
+    products.push({
+      id:'p_'+Math.random().toString(36).slice(2,8),
+      sku:d.sku, name:d.name, category:d.category,
+      unitCost:d.unitCost, unitPrice:d.unitPrice, onHand:d.onHand,
+      avgDailyDemand:d.avgDailyDemand, demandStdDev:d.demandStdDev, leadTimeDays:d.leadTimeDays,
+    });
+    Store.setProducts(products);
+    renderAll();
+    showToast(`Added ${d.sku} to the catalog`);
+    addBot(`🎉 <strong>${d.name}</strong> (${d.sku}) is now in your catalog. You'll see it in Inventory, and can log sales for it from Data Ops.`);
+    showQuickReplies([
+      { label:'➕ Add another product', value:'__start_wizard__' },
+      { label:'🏠 Main menu', value:'__menu__' },
+    ]);
+    this.state='idle'; this.step=0; this.draft={}; this.awaitingCustomCategory=false;
+  },
+};
+
+function showMainMenu(compact){
+  if(!compact) addBot('Here\'s what I can help with:');
+  showQuickReplies([
+    { label:'➕ Add a new product', value:'__start_wizard__' },
+    { label:'📦 Log a sale / purchase / return', value:'__goto_dataops__' },
+    { label:'📖 What is DSI?', value:'what is dsi' },
+    { label:'📖 What are EOQ & reorder point?', value:'what is eoq' },
+    { label:'📖 What is the ABC-XYZ matrix?', value:'what is abc xyz' },
+  ]);
+}
+
+function chatRoute(raw){
+  if(Assistant.state === 'wizard'){
+    if(raw === '__confirm_save__'){ Assistant.commit(); return; }
+    if(raw === '__restart__'){ Assistant.startWizard(); return; }
+    if(raw === '__cancel__' || /^cancel$/i.test(raw)){
+      Assistant.state='idle'; Assistant.step=0; Assistant.draft={}; Assistant.awaitingCustomCategory=false;
+      addBot('No problem — cancelled without saving. What next?');
+      showMainMenu(true);
+      return;
+    }
+    Assistant.handleFieldAnswer(raw);
+    return;
+  }
+
+  // idle-state routing
+  const t = String(raw).trim().toLowerCase();
+  if(raw === '__start_wizard__' || /add.*(product|sku|item)/.test(t)){ Assistant.startWizard(); return; }
+  if(raw === '__menu__' || /^(help|menu|hi|hello|hey)$/.test(t) || /what can you/.test(t)){ showMainMenu(); return; }
+  if(raw === '__goto_dataops__'){ navigate('dataops'); addBot('Done — I\'ve opened Data Ops for you. Pick a SKU and log it there.'); return; }
+
+  if(/dsi|days sales/.test(t)){
+    addBot('<strong>Days Sales of Inventory (DSI)</strong> tells you how many days of sales are sitting unsold in your warehouse. Lower is better — it means your cash isn\'t stuck on shelves.');
+    showMainMenu(true); return;
+  }
+  if(/eoq|economic order|reorder point|\brop\b/.test(t)){
+    addBot('<strong>Reorder Point</strong> is the stock level that should trigger a new order. <strong>EOQ</strong> is the ideal order size — big enough to avoid ordering too often, small enough to avoid tying up cash in storage.');
+    showMainMenu(true); return;
+  }
+  if(/abc|xyz|matrix/.test(t)){
+    addBot('The <strong>ABC-XYZ matrix</strong> groups products by revenue (A = top earners, C = long tail) and by how predictable demand is (X = steady, Z = erratic). Top-left (AX) is your bread and butter; bottom-right (CZ) is where you can safely hold less stock.');
+    showMainMenu(true); return;
+  }
+  if(/safety stock/.test(t)){
+    addBot('<strong>Safety stock</strong> is the extra buffer you hold beyond expected demand, to cover surprises in sales or late deliveries.');
+    showMainMenu(true); return;
+  }
+  if(/\bsale|\bsold|\bsell/.test(t)){ addBot('For logging a sale, head to Data Ops.'); showQuickReplies([{label:'Go to Data Ops', value:'__goto_dataops__'}]); return; }
+  if(/purchase|bought|restock|wholesaler/.test(t)){ addBot('For logging a wholesaler purchase, head to Data Ops.'); showQuickReplies([{label:'Go to Data Ops', value:'__goto_dataops__'}]); return; }
+  if(/return/.test(t)){ addBot('For a product return, head to Data Ops.'); showQuickReplies([{label:'Go to Data Ops', value:'__goto_dataops__'}]); return; }
+
+  addBot('I\'m best at helping you add new products right now. Want to add one?');
+  showQuickReplies([
+    { label:'➕ Add a new product', value:'__start_wizard__' },
+    { label:'❓ What can you help with', value:'__menu__' },
+  ]);
+}
+
+/* ---- Chat rendering helpers -------------------------------------------- */
+function addBot(html){
+  const el = document.createElement('div');
+  el.className = 'msg msg-bot';
+  el.innerHTML = html;
+  document.getElementById('chatMessages').appendChild(el);
+  scrollChatToBottom();
+}
+function addUser(text){
+  const el = document.createElement('div');
+  el.className = 'msg msg-user';
+  el.textContent = text;
+  document.getElementById('chatMessages').appendChild(el);
+  scrollChatToBottom();
+}
+function clearQuickReplies(){ document.getElementById('chatQuickReplies').innerHTML = ''; }
+function showQuickReplies(list){
+  const wrap = document.getElementById('chatQuickReplies');
+  wrap.innerHTML = list.map((o,i)=>`<button type="button" class="chip" data-value="${escapeAttr(o.value)}" data-idx="${i}">${o.label}</button>`).join('');
+  wrap.querySelectorAll('.chip').forEach((btn,i)=>{
+    btn.addEventListener('click', ()=> handleChatInput(list[i].value, list[i].label));
+  });
+}
+function scrollChatToBottom(){
+  const box = document.getElementById('chatMessages');
+  box.scrollTop = box.scrollHeight;
+}
+function handleChatInput(value, label){
+  clearQuickReplies();
+  addUser(label);
+  chatRoute(value);
+}
+function greetOnce(){
+  if(document.getElementById('chatMessages').children.length > 0) return;
+  addBot('Hi! I\'m the <strong>FlowDesk Assistant</strong> 👋<br>I can walk you through adding a new product step-by-step — no long form needed.');
+  showMainMenu();
+}
+function setupChatWidget(){
+  const panel = document.getElementById('chatPanel');
+  document.getElementById('chatToggle').addEventListener('click', ()=>{
+    const opening = !panel.classList.contains('open');
+    panel.classList.toggle('open');
+    document.getElementById('chatBadge').style.display = 'none';
+    if(opening){ greetOnce(); document.getElementById('chatInput').focus(); }
+  });
+  document.getElementById('chatClose').addEventListener('click', ()=> panel.classList.remove('open'));
+  document.getElementById('chatInputForm').addEventListener('submit', e=>{
+    e.preventDefault();
+    const inp = document.getElementById('chatInput');
+    const val = inp.value.trim();
+    if(!val) return;
+    inp.value = '';
+    handleChatInput(val, val);
+  });
+}
+
+/* --------------------------------------------------------------------------
+   13. INIT
+-------------------------------------------------------------------------- */
+(function init(){
+  buildNav();
+  wireForms();
+  setupChatWidget();
+  // default dates on forms = today
+  document.querySelectorAll('input[type=date]').forEach(i=> i.value = todayISO());
+  const startRoute = (window.location.hash||'#overview').replace('#','');
+  navigate(ROUTES[startRoute] ? startRoute : 'overview');
+})();
+</script>
+</body>
+</html>
